@@ -1,3 +1,18 @@
+# Entorno virtual
+venv/
+
+# Variables de entorno
+.env
+
+# Cache Python
+__pycache__/
+*.pyc
+
+# VS Code
+.vscode/
+
+# Logs
+*.log
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
