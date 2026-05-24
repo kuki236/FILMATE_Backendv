@@ -4,6 +4,10 @@ import sys
 # Insert project root to sys.path so autodoc can import project modules
 sys.path.insert(0, os.path.abspath('../../'))
 
+# Evitar que la importación de módulos haga pruebas de conexión a la BD
+# durante la generación de la documentación.
+os.environ.setdefault("SKIP_DB_CONNECT", "1")
+
 project = 'FILMATE Backend'
 author = 'Equipo FILMATE'
 language = 'es'

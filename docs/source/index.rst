@@ -5,8 +5,9 @@ Contenido:
 
 .. toctree::
    :maxdepth: 2
-
    modulos
+   
+   endpoints/index
 
 Índices y búsquedas
 ===================

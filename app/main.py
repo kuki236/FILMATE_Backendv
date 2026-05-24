@@ -10,14 +10,21 @@ import logging
 
 from app.core.database import engine, Base
 from app.models import *
-from app.routes import movies, users, reviews
+from app.routes import auth, cinemas, movies, users, reviews, showtimes, seats, orders, tickets
+from app.websocket.seats_ws import router as seats_ws_router
 
 logger = logging.getLogger(__name__)
 
 tags_metadata = [
     {"name": "users", "description": "Operaciones sobre usuarios (registro, consulta)."},
+    {"name": "auth", "description": "Registro de nuevos usuarios y autenticación."},
+    {"name": "cinemas", "description": "Listado de sedes/cines disponibles para el cliente."},
     {"name": "movies", "description": "Catálogo de películas: listado, creación y detalles."},
     {"name": "reviews", "description": "Gestión de reseñas: creación y listado por película."},
+    {"name": "showtimes", "description": "Consulta de funciones y horarios por sede."},
+    {"name": "seats", "description": "Mapa y bloqueo transaccional de asientos."},
+    {"name": "orders", "description": "Cierre de compra y confirmación de reserva."},
+    {"name": "tickets", "description": "Emisión y consulta del payload QR final."},
 ]
 
 app = FastAPI(
@@ -32,8 +39,15 @@ app = FastAPI(
 Base.metadata.create_all(bind=engine)
 
 app.include_router(users.router)
+app.include_router(auth.router)
+app.include_router(cinemas.router)
 app.include_router(movies.router)
 app.include_router(reviews.router)
+app.include_router(showtimes.router)
+app.include_router(seats.router)
+app.include_router(orders.router)
+app.include_router(tickets.router)
+app.include_router(seats_ws_router)
 
 
 @app.get("/", summary="Estado del servicio")

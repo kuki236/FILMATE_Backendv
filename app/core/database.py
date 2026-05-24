@@ -38,17 +38,21 @@ DATABASE_URL = (
     f"@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 )
 
-try:
-    engine = create_engine(
-        DATABASE_URL,
-        echo=True
-    )
-    # Test de conexión
-    with engine.connect() as conn:
-        logger.info("✅ Conexión a BD exitosa")
-except Exception as e:
-    # En entornos de documentación o CI la conexión puede fallar; registramos el error
-    logger.error(f"❌ Error al conectar a BD: {e}")
+# Crear el engine sin forzar la conexión. Algunas herramientas (p. ej. Sphinx)
+# importan los módulos del paquete; evitar probar la conexión en el import
+# previene bloqueos o fallos durante la generación de la documentación.
+engine = create_engine(DATABASE_URL, echo=True)
+
+# Por defecto intentamos una comprobación de conexión, pero permitimos omitirla
+# estableciendo la variable de entorno `SKIP_DB_CONNECT` (útil para docs/CI).
+skip_connect = os.getenv("SKIP_DB_CONNECT", "0").lower() in ("1", "true", "yes")
+if not skip_connect:
+    try:
+        with engine.connect() as conn:
+            logger.info("✅ Conexión a BD exitosa")
+    except Exception as e:
+        # En entornos de documentación o CI la conexión puede fallar; registramos el error
+        logger.error(f"❌ Error al conectar a BD: {e}")
 
 SessionLocal = sessionmaker(
     autocommit=False,

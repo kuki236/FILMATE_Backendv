@@ -1,7 +1,8 @@
-# backend/app/schemas/seat.py
+"""Esquemas para asientos y bloqueo transaccional de butacas."""
+
+from typing import List, Optional
 
 from pydantic import BaseModel
-from typing import Optional
 
 
 class SeatBase(BaseModel):
@@ -22,3 +23,27 @@ class SeatResponse(SeatBase):
 
     class Config:
         from_attributes = True
+
+
+class ShowtimeSeatItem(BaseModel):
+    id_asiento: int
+    fila: str
+    numero: int
+    estado: str
+
+
+class SeatMapResponse(BaseModel):
+    id_funcion: int
+    id_sala: int
+    asientos: List[ShowtimeSeatItem]
+
+
+class SeatLockRequest(BaseModel):
+    id_funcion: int
+    ids_asientos: List[int]
+
+
+class SeatLockResponse(BaseModel):
+    id_funcion: int
+    ids_asientos_bloqueados: List[int]
+    estado: str
