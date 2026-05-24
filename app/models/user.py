@@ -12,7 +12,20 @@ from sqlalchemy.sql import func
 
 from app.core.database import Base
 
+"""Modelo Usuario.
+
+Representa a un usuario del sistema con información básica, rol y
+relaciones con reservas, favoritos y reseñas.
+"""
+
 class Usuario(Base):
+    """Entidad `Usuario`.
+
+    Atributos clave:
+    - `id_usuario`: identificador del usuario.
+    - `correo`: email único usado para login.
+    - `rol`: relación con `Rol`.
+    """
     __tablename__ = "usuario"
 
     id_usuario = Column(
@@ -66,4 +79,19 @@ class Usuario(Base):
     rol = relationship(
         "Rol",
         back_populates="usuarios"
+    )
+
+    favoritos = relationship(
+        "Favorito",
+        back_populates="usuario"
+    )
+
+    reservas = relationship(
+        "Reserva",
+        back_populates="usuario"
+    )
+
+    resenas = relationship(
+        "Resena",
+        back_populates="usuario"
     )
