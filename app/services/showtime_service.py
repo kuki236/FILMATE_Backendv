@@ -69,3 +69,21 @@ def list_showtimes_by_cinema(db: Session, cinema_id: int, only_future: bool = Tr
         ciudad=cinema.ciudad,
         funciones=funciones,
     )
+
+
+def list_showtimes_by_movie(db: Session, movie_id: int):
+    """Obtiene todas las funciones de una película."""
+
+    showtimes = (
+        db.query(Funcion)
+        .filter(Funcion.id_pelicula == movie_id)
+        .all()
+    )
+
+    if not showtimes:
+        raise HTTPException(
+            status_code=404,
+            detail="No se encontraron funciones para esta película"
+        )
+
+    return showtimes

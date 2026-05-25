@@ -43,3 +43,69 @@ def create_movie(db: Session, movie: Pelicula) -> Pelicula:
         logger.error(f"❌ Error al crear película: {e}")
         db.rollback()
         raise
+
+
+def update_movie(db: Session, movie_id: int, payload):
+    movie = db.query(Pelicula).filter(
+        Pelicula.id_pelicula == movie_id
+    ).first()
+
+    if not movie:
+        return None
+
+    movie.titulo = payload.titulo
+    movie.sinopsis = payload.sinopsis
+    movie.duracion_minutos = payload.duracion_minutos
+    movie.clasificacion_edad = payload.clasificacion_edad
+    movie.url_poster = payload.url_poster
+    movie.url_trailer = payload.url_trailer
+
+    db.commit()
+    db.refresh(movie)
+
+    return movie
+
+
+def delete_movie(db: Session, movie_id: int):
+    movie = db.query(Pelicula).filter(
+        Pelicula.id_pelicula == movie_id
+    ).first()
+
+    if not movie:
+        return None
+
+    db.delete(movie)
+    db.commit()
+
+    return movie
+
+
+def update_movie(db: Session, movie_id: int, data: dict):
+    movie = db.query(Pelicula).filter(
+        Pelicula.id_pelicula == movie_id
+    ).first()
+
+    if not movie:
+        return None
+
+    for key, value in data.items():
+        setattr(movie, key, value)
+
+    db.commit()
+    db.refresh(movie)
+
+    return movie
+
+
+def delete_movie(db: Session, movie_id: int):
+    movie = db.query(Pelicula).filter(
+        Pelicula.id_pelicula == movie_id
+    ).first()
+
+    if not movie:
+        return None
+
+    db.delete(movie)
+    db.commit()
+
+    return movie

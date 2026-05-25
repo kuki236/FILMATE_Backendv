@@ -52,3 +52,7 @@ class CinemaShowtimesResponse(BaseModel):
     nombre_cine: str
     ciudad: Optional[str] = None
     funciones: List[ShowtimeAvailabilityItem]
+
+
+class ShowtimeUpdate(ShowtimeBase):
+    pass
