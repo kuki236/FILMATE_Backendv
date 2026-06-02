@@ -5,7 +5,9 @@ import logging
 from app.models.movie import Pelicula
 from app.models.movie_genre import PeliculaGenero
 from app.models.movie_actor import PeliculaActor
+from app.models.movie_director import PeliculaDirector
 from app.models.actor import Actor
+from app.models.director import Director
 from app.models.banner import BannerHome
 from sqlalchemy import text
 
@@ -86,6 +88,7 @@ def update_movie(
 
     movie.url_poster = data["url_poster"]
     movie.url_trailer = data["url_trailer"]
+    movie.url_banner = data.get("url_banner")
 
     # =========================
     # GENEROS
@@ -134,6 +137,21 @@ def update_movie(
         db.add(pelicula_actor)
 
     # =========================
+    # DIRECTORES
+    # =========================
+
+    db.query(PeliculaDirector).filter(
+        PeliculaDirector.id_pelicula == movie_id
+    ).delete()
+
+    for director_id in data.get("directores", []):
+        nuevo_director = PeliculaDirector(
+            id_pelicula=movie_id,
+            id_director=director_id
+        )
+        db.add(nuevo_director)
+
+    # =========================
     # BANNER
     # =========================
 
@@ -173,7 +191,6 @@ def delete_movie(db, movie_id):
     if not movie:
         return None
 
-    # eliminar relaciones
     db.execute(text("""
         DELETE FROM pelicula_genero
         WHERE id_pelicula = :id
@@ -181,6 +198,11 @@ def delete_movie(db, movie_id):
 
     db.execute(text("""
         DELETE FROM pelicula_actor
+        WHERE id_pelicula = :id
+    """), {"id": movie_id})
+
+    db.execute(text("""
+        DELETE FROM pelicula_director
         WHERE id_pelicula = :id
     """), {"id": movie_id})
 

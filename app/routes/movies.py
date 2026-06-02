@@ -15,6 +15,8 @@ from app.schemas.movie import (
 )
 
 from app.models.movie import Pelicula
+from app.models.director import Director
+from app.models.movie_director import PeliculaDirector
 from app.repositories import movie_repository
 from app.services.movie_service import get_movie_details
 
@@ -97,6 +99,24 @@ def create_movie(
                     "id_pelicula": movie.id_pelicula,
                     "id_actor": actor["id_actor"],
                     "personaje": actor["personaje"]
+                }
+            )
+
+        # ─────────────────────────────────────
+        # Guardar directores
+        # ─────────────────────────────────────
+        for director_id in payload.directores:
+            db.execute(text(
+                """
+                INSERT INTO pelicula_director (
+                    id_pelicula,
+                    id_director
+                )
+                VALUES (:id_pelicula, :id_director)
+                """),
+                {
+                    "id_pelicula": movie.id_pelicula,
+                    "id_director": director_id
                 }
             )
 
@@ -438,6 +458,25 @@ def list_statuses(
             status_code=500,
             detail=str(e)
         )
+
+
+# =========================================
+# META - DIRECTORES
+# =========================================
+
+@router.get("/meta/directors")
+def list_directors_meta(db: Session = Depends(get_db)):
+    logger.info("📥 GET /movies/meta/directors")
+    try:
+        directors = (
+            db.query(Director)
+            .order_by(Director.nombre.asc())
+            .all()
+        )
+        return directors
+    except Exception as e:
+        logger.error(f"❌ Error GET /movies/meta/directors: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # =========================================

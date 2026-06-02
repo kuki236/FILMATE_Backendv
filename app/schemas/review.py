@@ -1,5 +1,3 @@
-# backend/app/schemas/review.py
-
 from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional
@@ -13,6 +11,10 @@ class ReviewBase(BaseModel):
 
 class ReviewCreate(ReviewBase):
     pass
+
+
+class ReviewModerate(BaseModel):
+    estado_moderacion: str
 
 
 class ReviewResponse(ReviewBase):

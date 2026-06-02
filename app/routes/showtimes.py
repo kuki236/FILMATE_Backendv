@@ -1,6 +1,7 @@
 """Rutas para consultar funciones y horarios por sede."""
 
 import logging
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -14,7 +15,10 @@ from app.schemas.showtime import (
     ShowtimeUpdate
 )
 from typing import List
-from app.services.showtime_service import list_showtimes_by_cinema
+from app.services.showtime_service import (
+    list_showtimes_by_cinema,
+    list_showtimes_by_date,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/showtimes", tags=["showtimes"])
@@ -60,6 +64,43 @@ def get_showtimes_by_movie(movie_id: int, db: Session = Depends(get_db)):
             exc_info=True
         )
 
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get(
+    "/date/{target_date}",
+    response_model=list[ShowtimeResponse]
+)
+def get_showtimes_by_date(
+    target_date: date,
+    cinema_id: int | None = None,
+    movie_id: int | None = None,
+    db: Session = Depends(get_db)
+):
+    """Devuelve funciones por fecha (`YYYY-MM-DD`) con filtros opcionales."""
+
+    logger.info(
+        "📥 GET /showtimes/date/%s?cinema_id=%s&movie_id=%s",
+        target_date,
+        cinema_id,
+        movie_id,
+    )
+
+    try:
+        return list_showtimes_by_date(
+            db,
+            target_date=target_date,
+            cinema_id=cinema_id,
+            movie_id=movie_id,
+        )
+
+    except Exception as exc:
+        logger.error(
+            "❌ Error en GET /showtimes/date/%s: %s",
+            target_date,
+            exc,
+            exc_info=True
+        )
         raise HTTPException(status_code=500, detail=str(exc))
     
 

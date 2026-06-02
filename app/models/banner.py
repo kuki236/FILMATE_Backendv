@@ -33,7 +33,7 @@ class BannerHome(Base):
     )
 
     imagen_url = Column(
-        String(255),
+        String(500),
         nullable=False
     )
 

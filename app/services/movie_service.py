@@ -3,9 +3,11 @@ from sqlalchemy.orm import Session
 from app.models.movie import Pelicula
 from app.models.genre import Genero
 from app.models.actor import Actor
+from app.models.director import Director
 from app.models.review import Resena
 from app.models.movie_genre import PeliculaGenero
 from app.models.movie_actor import PeliculaActor
+from app.models.movie_director import PeliculaDirector
 from app.models.banner import BannerHome
 from fastapi import HTTPException
 
@@ -46,6 +48,16 @@ def get_movie_details(db: Session, movie_id: int):
         .all()
     )
 
+    directores = (
+        db.query(Director.id_director, Director.nombre)
+        .join(
+            PeliculaDirector,
+            PeliculaDirector.id_director == Director.id_director
+        )
+        .filter(PeliculaDirector.id_pelicula == movie_id)
+        .all()
+    )
+
     stats = (
         db.query(
             func.avg(Resena.calificacion_estrellas),
@@ -75,6 +87,10 @@ def get_movie_details(db: Session, movie_id: int):
 
         "generos": generos,
         "actores": actores,
+        "directores": [
+            {"id_director": d.id_director, "nombre": d.nombre}
+            for d in directores
+        ],
 
         "promedio_resenas": round(promedio, 1),
         "total_resenas": total

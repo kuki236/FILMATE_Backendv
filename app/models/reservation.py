@@ -115,3 +115,8 @@ class Reserva(Base):
         "ReservaSnack",
         back_populates="reserva"
     )
+
+    solicitudes = relationship(
+        "SolicitudReembolso",
+        back_populates="reserva"
+    )

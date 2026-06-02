@@ -32,7 +32,7 @@ class ProductoSnack(Base):
     nombre = Column(String(100), nullable=False)
     descripcion = Column(String(255))
     precio_actual = Column(DECIMAL(8, 2), nullable=False)
-    url_imagen = Column(String(255), nullable=False)
+    url_imagen = Column(String(500), nullable=False)
     is_activo = Column(Boolean, default=True)
 
     categoria = relationship(

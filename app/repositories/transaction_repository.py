@@ -134,7 +134,7 @@ def list_transactions(
             .filter(ReservaSnack.id_reserva == reserva.id_reserva)
             .scalar()
         )
-        monto_real = float(reserva.monto_total) + total_snacks
+        monto_real = float(reserva.monto_total)
 
         # Determinar tipo
         if num_boletos > 0 and num_snacks > 0:
@@ -157,17 +157,10 @@ def list_transactions(
             "tipo":         tipo,   # ← nuevo campo
         })
 
-    ingresos_reservas = float(
+    ingresos_totales = float(
         db.query(func.coalesce(func.sum(Reserva.monto_total), 0))
         .scalar()
     )
-
-    ingresos_snacks = float(
-        db.query(func.coalesce(func.sum(ReservaSnack.subtotal), 0))
-        .scalar()
-    )
-
-    ingresos_totales = ingresos_reservas + ingresos_snacks
 
     ventas_mes = (
         db.query(func.count(Reserva.id_reserva))
@@ -176,7 +169,7 @@ def list_transactions(
     )
 
     ticket_promedio = (
-        ingresos_reservas / ventas_mes
+        ingresos_totales / ventas_mes
         if ventas_mes > 0
         else 0
     )
@@ -304,7 +297,7 @@ def get_transaction_detail(
             ReservaSnack,
             ProductoSnack
         )
-        .join(
+        .outerjoin(
             ProductoSnack,
             ProductoSnack.id_producto
             == ReservaSnack.id_producto
@@ -320,10 +313,11 @@ def get_transaction_detail(
 
     for rs, producto in snacks_query:
         subtotal = float(rs.subtotal) if rs.subtotal is not None else float(rs.cantidad * rs.precio_unitario)
+        nombre_producto = producto.nombre if producto else "Producto eliminado"
 
         snacks.append({
 
-            "producto": producto.nombre,
+            "producto": nombre_producto,
 
             "cantidad": rs.cantidad,
 

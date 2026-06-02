@@ -58,11 +58,15 @@ class Pelicula(Base):
     )
 
     url_poster = Column(
-        String(255)
+        String(500)
     )
 
     url_trailer = Column(
-        String(255)
+        String(500)
+    )
+
+    url_banner = Column(
+        String(500)
     )
 
     categoria_cartelera = Column(
@@ -120,5 +124,10 @@ class Pelicula(Base):
 
     favoritos = relationship(
         "Favorito",
+        back_populates="pelicula"
+    )
+
+    directores = relationship(
+        "PeliculaDirector",
         back_populates="pelicula"
     )

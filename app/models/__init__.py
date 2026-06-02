@@ -26,3 +26,7 @@ from .snack_product import ProductoSnack
 from .reservation import Reserva
 from .reservation_snack import ReservaSnack
 from .ticket import Boleto
+from .director import Director
+from .movie_director import PeliculaDirector
+from .motivo_devolucion import MotivoDevolucion
+from .solicitud_reembolso import SolicitudReembolso
