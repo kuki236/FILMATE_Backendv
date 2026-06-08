@@ -1,55 +1,61 @@
-"""API principal de Filmate.
-
-Este módulo define la instancia de `FastAPI`, registra las rutas principales
-y expone endpoints básicos de salud y estado. Los `tags_metadata` se usan
-para mejorar la documentación automática (OpenAPI / Swagger).
-"""
-
 from fastapi import FastAPI
 import logging
 
 from app.core.database import engine, Base
 from app.models import *
-from app.routes import auth, cinemas, movies, users, reviews, showtimes, seats, orders, tickets, admin_transactions, snacks, rooms, directors, reembolsos, admin_reembolsos, favorites, tariffs, promotions, actors, reservations, admin_reservas
+from app.routes import (
+    auth, cinemas, movies, users, reviews, showtimes, seats, orders, tickets,
+    admin_movies, admin_cinemas, admin_showtimes, admin_seats, admin_users,
+    admin_transactions, snacks, rooms, reembolsos, admin_reembolsos,
+    reservations, admin_reservas, interacciones, colecciones, carrito,
+    seguidores, actividad, roles,
+)
 from app.websocket.seats_ws import router as seats_ws_router
-from app.routes import admin_transactions
 
 logger = logging.getLogger(__name__)
 
 tags_metadata = [
-    {"name": "users", "description": "Operaciones sobre usuarios (registro, consulta)."},
-    {"name": "auth", "description": "Registro de nuevos usuarios y autenticación."},
-    {"name": "cinemas", "description": "Listado de sedes/cines disponibles para el cliente."},
-    {"name": "movies", "description": "Catálogo de películas: listado, creación y detalles."},
-    {"name": "reviews", "description": "Gestión de reseñas: creación y listado por película."},
-    {"name": "showtimes", "description": "Consulta de funciones y horarios por sede."},
-    {"name": "seats", "description": "Mapa y bloqueo transaccional de asientos."},
-    {"name": "orders", "description": "Cierre de compra y confirmación de reserva."},
-    {"name": "tickets", "description": "Emisión y consulta del payload QR final."},
-    {"name": "directors", "description": "CRUD de directores."},
+    {"name": "auth", "description": "Registro y autenticación."},
+    {"name": "users", "description": "Perfil de usuario."},
+    {"name": "movies", "description": "Catálogo de películas (público)."},
+    {"name": "cinemas", "description": "Listado de cines (público)."},
+    {"name": "showtimes", "description": "Funciones y horarios (público)."},
+    {"name": "seats", "description": "Mapa y bloqueo de asientos (público)."},
+    {"name": "orders", "description": "Cierre de compra."},
+    {"name": "tickets", "description": "Emisión de tickets y QR."},
+    {"name": "reviews", "description": "Reseñas de usuarios."},
+    {"name": "snacks", "description": "Confitería y dulcería."},
     {"name": "reembolsos", "description": "Solicitudes de reembolso (cliente)."},
-    {"name": "admin reembolsos", "description": "Gestión de reembolsos (admin)."},
-    {"name": "favorites", "description": "Favoritos del usuario."},
-    {"name": "tariffs", "description": "CRUD de tarifas (admin)."},
-    {"name": "promotions", "description": "CRUD de promociones y validación de cupones."},
-    {"name": "actors", "description": "CRUD de actores."},
-    {"name": "reservations", "description": "Historial de reservas por usuario."},
-    {"name": "admin reservas", "description": "Listado admin de reservas."},
+    {"name": "reservations", "description": "Historial de transacciones (usuario)."},
+    {"name": "interacciones", "description": "Interacciones con películas."},
+    {"name": "colecciones", "description": "Colecciones de películas."},
+    {"name": "carrito", "description": "Carrito de confitería."},
+    {"name": "seguidores", "description": "Seguir/dejar de seguir usuarios."},
+    {"name": "actividad", "description": "Feed de actividad social."},
+    {"name": "admin movies", "description": "Admin: CRUD de películas y metadatos."},
+    {"name": "admin cinemas", "description": "Admin: CRUD de cines."},
+    {"name": "admin rooms", "description": "Admin: CRUD de salas."},
+    {"name": "admin showtimes", "description": "Admin: CRUD de funciones."},
+    {"name": "admin seats", "description": "Admin: gestión de asientos por sala."},
+    {"name": "admin users", "description": "Admin: listar/crear usuarios."},
+    {"name": "admin reembolsos", "description": "Admin: revisar y resolver reembolsos."},
+    {"name": "admin reservations", "description": "Admin: listado de transacciones."},
+    {"name": "admin transactions", "description": "Admin: ventas y validación de tickets."},
+    {"name": "admin roles", "description": "Admin: roles y permisos del sistema."},
 ]
 
 app = FastAPI(
     title="Filmate API",
-    version="0.1.0",
-    description="API para la plataforma Filmate. Documentación disponible en Swagger UI.",
+    version="0.2.0",
+    description="API para la plataforma Filmate — Nueva BD",
     openapi_tags=tags_metadata,
     docs_url="/docs",
     redoc_url="/redoc",
 )
 
-#Base.metadata.create_all(bind=engine)
-
-app.include_router(users.router)
+# ── User-facing routes (sin prefijo /admin) ──
 app.include_router(auth.router)
+app.include_router(users.router)
 app.include_router(cinemas.router)
 app.include_router(movies.router)
 app.include_router(reviews.router)
@@ -58,47 +64,41 @@ app.include_router(seats.router)
 app.include_router(orders.router)
 app.include_router(tickets.router)
 app.include_router(seats_ws_router)
-app.include_router(admin_transactions.router)
 app.include_router(snacks.router)
-app.include_router(rooms.router)
-app.include_router(admin_transactions.router)
-app.include_router(directors.router)
 app.include_router(reembolsos.router)
-app.include_router(admin_reembolsos.router)
-app.include_router(favorites.router)
-app.include_router(tariffs.router)
-app.include_router(promotions.router)
-app.include_router(actors.router)
 app.include_router(reservations.router)
+app.include_router(interacciones.router)
+app.include_router(colecciones.router)
+app.include_router(carrito.router)
+app.include_router(seguidores.router)
+app.include_router(actividad.router)
+
+# ── Admin routes (prefijo /admin) ──
+app.include_router(admin_movies.router)
+app.include_router(admin_cinemas.router)
+app.include_router(admin_showtimes.router)
+app.include_router(admin_seats.router)
+app.include_router(admin_users.router)
+app.include_router(rooms.router)
+app.include_router(roles.router)
+app.include_router(admin_transactions.router)
+app.include_router(admin_reembolsos.router)
 app.include_router(admin_reservas.router)
 
 
 @app.get("/", summary="Estado del servicio")
 def root():
-    """Endpoint raíz que devuelve un mensaje simple indicando que la API está activa.
-
-    Se utiliza para comprobaciones rápidas y para proporcionar un punto de entrada
-    legible en la documentación.
-    """
-    logger.info("✅ GET / - API activa")
+    logger.info("GET / - API activa")
     return {"message": "Filmate API funcionando"}
 
 
-@app.get("/health", summary="Health Check - Verifica conexión a BD", tags=["health"])
+@app.get("/health", summary="Health Check", tags=["health"])
 def health_check():
-    """Endpoint para verificar si la API y la BD están funcionando."""
-    logger.info("🏥 GET /health - Verificando estado")
+    logger.info("GET /health - Verificando estado")
     try:
         with engine.connect() as conn:
-            logger.info("✅ Health check: BD conectada")
-            return {
-                "status": "healthy",
-                "database": "connected"
-            }
+            logger.info("Health check: BD conectada")
+            return {"status": "healthy", "database": "connected"}
     except Exception as e:
-        logger.error(f"❌ Health check falló: {e}")
-        return {
-            "status": "unhealthy",
-            "database": "disconnected",
-            "error": str(e)
-        }
+        logger.error("Health check falló: %s", e)
+        return {"status": "unhealthy", "database": "disconnected", "error": str(e)}

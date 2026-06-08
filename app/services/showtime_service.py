@@ -1,5 +1,3 @@
-"""Servicios para consulta de funciones y horarios por sede."""
-
 from datetime import datetime
 
 from fastapi import HTTPException
@@ -11,41 +9,37 @@ from app.models.movie import Pelicula
 from app.models.room import Sala
 from app.models.seat import Asiento
 from app.models.showtime import Funcion
-from app.models.showtime_seat import FuncionAsiento
+from app.models.showtime_seat import AsientoFuncion
 from app.schemas.showtime import CinemaShowtimesResponse, ShowtimeAvailabilityItem
 
 
 def list_showtimes_by_cinema(db: Session, cinema_id: int, only_future: bool = True) -> CinemaShowtimesResponse:
-    """Devuelve las funciones disponibles de una sede con totales de asientos."""
-
-    cinema = db.get(Cine, cinema_id)
+    cinema = db.query(Cine).filter(Cine.id_cine == cinema_id, Cine.eliminado == False).first()
     if not cinema:
         raise HTTPException(status_code=404, detail="Cine no encontrado")
 
-    stmt = (
-        select(Funcion, Pelicula, Sala)
+    query = (
+        db.query(Funcion, Pelicula, Sala)
         .join(Pelicula, Funcion.id_pelicula == Pelicula.id_pelicula)
         .join(Sala, Funcion.id_sala == Sala.id_sala)
-        .where(Sala.id_cine == cinema_id)
+        .filter(Sala.id_cine == cinema_id)
     )
 
     if only_future:
-        stmt = stmt.where(Funcion.fecha_hora_inicio >= datetime.utcnow())
+        query = query.filter(Funcion.fecha_hora >= datetime.now())
 
-    rows = db.execute(stmt.order_by(Funcion.fecha_hora_inicio)).all()
+    rows = query.order_by(Funcion.fecha_hora).all()
     funciones = []
 
     for funcion, pelicula, sala in rows:
-        asientos_totales = db.scalar(
-            select(func.count(Asiento.id_asiento)).where(Asiento.id_sala == sala.id_sala)
-        ) or 0
+        asientos_totales = db.query(func.count(Asiento.id_asiento)).filter(
+            Asiento.id_sala == sala.id_sala, Asiento.eliminado == False
+        ).scalar() or 0
 
-        asientos_bloqueados = db.scalar(
-            select(func.count(FuncionAsiento.id_asiento)).where(
-                FuncionAsiento.id_funcion == funcion.id_funcion,
-                FuncionAsiento.estado.in_(["Reservado", "Vendido"]),
-            )
-        ) or 0
+        asientos_ocupados = db.query(func.count(AsientoFuncion.id_asiento)).filter(
+            AsientoFuncion.id_funcion == funcion.id_funcion,
+            AsientoFuncion.estado.in_(["Ocupado", "Bloqueado"]),
+        ).scalar() or 0
 
         funciones.append(
             ShowtimeAvailabilityItem(
@@ -53,37 +47,23 @@ def list_showtimes_by_cinema(db: Session, cinema_id: int, only_future: bool = Tr
                 id_pelicula=pelicula.id_pelicula,
                 titulo_pelicula=pelicula.titulo,
                 id_sala=sala.id_sala,
-                nombre_sala=sala.nombre,
-                fecha_hora_inicio=funcion.fecha_hora_inicio,
-                fecha_hora_fin=funcion.fecha_hora_fin,
-                idioma=funcion.idioma,
-                formato=funcion.formato,
+                nombre_sala=sala.nombre_sala,
+                fecha_hora=funcion.fecha_hora,
+                precio_base=float(funcion.precio_base),
                 asientos_totales=asientos_totales,
-                asientos_disponibles=max(asientos_totales - asientos_bloqueados, 0),
+                asientos_disponibles=max(asientos_totales - asientos_ocupados, 0),
             )
         )
 
     return CinemaShowtimesResponse(
         id_cine=cinema.id_cine,
-        nombre_cine=cinema.nombre,
-        ciudad=cinema.ciudad,
+        nombre_cine=cinema.nombre_cine,
         funciones=funciones,
     )
 
 
 def list_showtimes_by_movie(db: Session, movie_id: int):
-    """Obtiene todas las funciones de una película."""
-
-    showtimes = (
-        db.query(Funcion)
-        .filter(Funcion.id_pelicula == movie_id)
-        .all()
-    )
-
+    showtimes = db.query(Funcion).filter(Funcion.id_pelicula == movie_id).all()
     if not showtimes:
-        raise HTTPException(
-            status_code=404,
-            detail="No se encontraron funciones para esta película"
-        )
-
+        raise HTTPException(status_code=404, detail="No se encontraron funciones para esta película")
     return showtimes

@@ -1,1229 +1,1239 @@
--- =========================================================
--- LIMPIAR Y CREAR BASE DE DATOS
--- =========================================================
-
+-- ====================================================================
+-- 1. CONFIGURACIÓN INICIAL Y CREACIÓN
+-- ====================================================================
 DROP DATABASE IF EXISTS filmate_db;
-
-CREATE DATABASE filmate_db
-CHARACTER SET utf8mb4
-COLLATE utf8mb4_unicode_ci;
-
+CREATE DATABASE filmate_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE filmate_db;
 
--- =========================================================
--- TABLAS
--- =========================================================
+-- ====================================================================
+-- 2. ELIMINACIÓN DE TABLAS (Orden inverso estricto para evitar conflictos FK)
+-- ====================================================================
+DROP TABLE IF EXISTS log_actividad_sistema;
+DROP TABLE IF EXISTS roles_permisos;
+DROP TABLE IF EXISTS permisos;
+DROP TABLE IF EXISTS usuarios_roles;
+DROP TABLE IF EXISTS roles;
+DROP TABLE IF EXISTS log_validaciones_qr;
+DROP TABLE IF EXISTS detalle_boleta_asientos;
+DROP TABLE IF EXISTS detalle_boleta_confiteria;
+DROP TABLE IF EXISTS boletas_tickets;
+DROP TABLE IF EXISTS solicitudes_reembolso;
+DROP TABLE IF EXISTS transacciones;
+DROP TABLE IF EXISTS carrito_confiteria;
+DROP TABLE IF EXISTS productos_confiteria;
+DROP TABLE IF EXISTS categorias_confiteria;
+DROP TABLE IF EXISTS bloqueos_temporales;
+DROP TABLE IF EXISTS asientos_funciones;
+DROP TABLE IF EXISTS asientos;
+DROP TABLE IF EXISTS funciones;
+DROP TABLE IF EXISTS salas;
+DROP TABLE IF EXISTS cines;
+DROP TABLE IF EXISTS colecciones_peliculas;
+DROP TABLE IF EXISTS colecciones;
+DROP TABLE IF EXISTS interacciones_peliculas;
+DROP TABLE IF EXISTS resenas;
+DROP TABLE IF EXISTS peliculas_generos;
+DROP TABLE IF EXISTS generos;
+DROP TABLE IF EXISTS peliculas;
+DROP TABLE IF EXISTS seguidores;
+DROP TABLE IF EXISTS historial_actividad;
+DROP TABLE IF EXISTS tipos_documento;
+DROP TABLE IF EXISTS usuarios;
 
--- 1. SEGURIDAD Y USUARIOS
+-- ====================================================================
+-- 3. ESTRUCTURA DE TABLAS MAESTRAS E INTERMEDIAS (DDL COMPLETAMENTE LIMPIO)
+-- ====================================================================
 
-CREATE TABLE rol (
-    id_rol INT AUTO_INCREMENT PRIMARY KEY,
-    nombre VARCHAR(50) NOT NULL UNIQUE
+-- --- MÓDULO: SEGURIDAD, ROLES Y PERMISOS (RBAC) ---
+
+CREATE TABLE tipos_documento (
+    id_tipo_doc INT AUTO_INCREMENT PRIMARY KEY,
+    siglas VARCHAR(10) NOT NULL UNIQUE,     -- 'DNI', 'CE', 'PASAPORTE'
+    descripcion VARCHAR(100) NOT NULL
 );
 
-CREATE TABLE usuario (
+CREATE TABLE roles (
+    id_role INT AUTO_INCREMENT PRIMARY KEY,
+    nombre_rol VARCHAR(50) NOT NULL UNIQUE, -- 'ADMINISTRADOR', 'CLIENTE'
+    descripcion TEXT
+);
+
+CREATE TABLE usuarios (
     id_usuario INT AUTO_INCREMENT PRIMARY KEY,
-    id_rol INT NOT NULL,
-    nombres VARCHAR(100) NOT NULL,
-    apellidos VARCHAR(100) NOT NULL,
-    correo VARCHAR(150) NOT NULL UNIQUE,
-    password_hash VARCHAR(255) NOT NULL,
-    estado ENUM('Activo', 'Bloqueado', 'Inactivo') DEFAULT 'Activo',
-    fecha_registro DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (id_rol) REFERENCES rol(id_rol)
+    nombre VARCHAR(150) NOT NULL,           -- "Full name"
+    username VARCHAR(50) NOT NULL UNIQUE,   -- "Username"
+    correo VARCHAR(150) NOT NULL UNIQUE,    -- "Email"
+    contrasena VARCHAR(255) NOT NULL,       -- "Password"
+    id_tipo_doc INT NOT NULL DEFAULT 1,     -- Vinculado a DNI por defecto
+    numero_documento VARCHAR(20) NOT NULL,  -- Número de identidad unívoco
+    telefono VARCHAR(20) DEFAULT NULL,      -- "Phone number"
+    url_perfil VARCHAR(255) DEFAULT 'https://api.dicebear.com/7.x/bottts/svg?seed=kuki_listo_1', -- Foto para las reseñas
+    estado_usuario VARCHAR(20) NOT NULL DEFAULT 'ACTIVO', -- 'ACTIVO', 'INACTIVO'
+    fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    ultima_conexion TIMESTAMP DEFAULT NULL, -- Alimenta la grilla de control de accesos
+    eliminado BOOLEAN NOT NULL DEFAULT FALSE, -- Control de Soft Delete
+    fecha_eliminacion DATETIME DEFAULT NULL,  -- Auditoría temporal de baja física
+    FOREIGN KEY (id_tipo_doc) REFERENCES tipos_documento(id_tipo_doc) ON DELETE RESTRICT,
+    CONSTRAINT uq_documento_identidad UNIQUE (id_tipo_doc, numero_documento)
 );
 
--- 2. PELICULAS Y CATALOGO
+CREATE TABLE usuarios_roles (
+    id_usuario INT,
+    id_role INT,
+    PRIMARY KEY (id_usuario, id_role),
+    FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE,
+    FOREIGN KEY (id_role) REFERENCES roles(id_role) ON DELETE CASCADE
+);
 
-CREATE TABLE pelicula (
+CREATE TABLE permisos (
+    id_permiso INT AUTO_INCREMENT PRIMARY KEY,
+    codigo_permiso VARCHAR(50) NOT NULL UNIQUE, -- Ej: 'VER_HISTORIAL_TXN', 'CONFIG_PRECIOS'
+    descripcion VARCHAR(150) NOT NULL,          -- Texto de la interfaz gráfica
+    modulo VARCHAR(50) NOT NULL                 -- Agrupador visual: 'VENTA Y TICKETS', etc.
+);
+
+CREATE TABLE roles_permisos (
+    id_role INT,
+    id_permiso INT,
+    PRIMARY KEY (id_role, id_permiso),
+    FOREIGN KEY (id_role) REFERENCES roles(id_role) ON DELETE CASCADE,
+    FOREIGN KEY (id_permiso) REFERENCES permisos(id_permiso) ON DELETE CASCADE
+);
+
+
+-- --- MÓDULO: PELÍCULAS Y ECOSYSTEMA SOCIAL (ESTILO LETTERBOXD / TMDb) ---
+
+CREATE TABLE generos (
+    id_genero INT PRIMARY KEY, -- Mantiene los IDs oficiales de la API de TMDb
+    nombre_genero VARCHAR(50) NOT NULL
+);
+
+CREATE TABLE peliculas (
     id_pelicula INT AUTO_INCREMENT PRIMARY KEY,
-    titulo VARCHAR(150) NOT NULL,
+    titulo VARCHAR(255) NOT NULL,
+    anio_lanzamiento INT NOT NULL,
+    duracion_minutos INT NOT NULL,
+    clasificacion VARCHAR(10) NOT NULL,    -- Ej: "+14", "APT", "PG-13"
+    estado_pelicula VARCHAR(30) NOT NULL DEFAULT 'PRÓXIMAMENTE', -- 'ACTIVO', 'PRÓXIMAMENTE', 'EN CARTELERA'
+    url_poster VARCHAR(255) NOT NULL,
+    url_banner VARCHAR(255),
+    url_trailer VARCHAR(255),
     sinopsis TEXT,
-    duracion_minutos INT,
-    clasificacion_edad VARCHAR(10),
-    url_poster VARCHAR(500),
-    url_trailer VARCHAR(500),
-    url_banner VARCHAR(500),
-    categoria_cartelera ENUM('Estreno', 'Preventa', 'Cartelera', 'Proximamente') DEFAULT 'Proximamente',
-    estado_registro ENUM('Activo', 'Inactivo') DEFAULT 'Activo',
-    fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP
+    elenco TEXT,
+    director VARCHAR(150) NOT NULL,
+    total_vistas_comunidad INT DEFAULT 0,
+    total_favoritos_comunidad INT DEFAULT 0,
+    eliminado BOOLEAN NOT NULL DEFAULT FALSE, -- Control de Soft Delete
+    fecha_eliminacion DATETIME DEFAULT NULL   -- Auditoría temporal de baja física
 );
-
-CREATE TABLE genero (
-    id_genero INT AUTO_INCREMENT PRIMARY KEY,
-    nombre VARCHAR(50) NOT NULL UNIQUE
-);
-
-CREATE TABLE pelicula_genero (
-    id_pelicula INT NOT NULL,
-    id_genero INT NOT NULL,
-    PRIMARY KEY (id_pelicula, id_genero),
-    FOREIGN KEY (id_pelicula) REFERENCES pelicula(id_pelicula) ON DELETE CASCADE,
-    FOREIGN KEY (id_genero) REFERENCES genero(id_genero) ON DELETE CASCADE
-);
-
-CREATE TABLE actor (
-    id_actor INT AUTO_INCREMENT PRIMARY KEY,
-    nombre VARCHAR(100) NOT NULL UNIQUE
-);
-
-CREATE TABLE pelicula_actor (
-    id_pelicula INT NOT NULL,
-    id_actor INT NOT NULL,
-    personaje VARCHAR(100) NOT NULL,
-    PRIMARY KEY (id_pelicula, id_actor),
-    FOREIGN KEY (id_pelicula) REFERENCES pelicula(id_pelicula) ON DELETE CASCADE,
-    FOREIGN KEY (id_actor) REFERENCES actor(id_actor) ON DELETE CASCADE
-);
-
-CREATE TABLE banner_home (
-    id_banner INT AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE peliculas_generos (
     id_pelicula INT,
-    imagen_url VARCHAR(500) NOT NULL,
-    orden INT NOT NULL,
-    is_activo BOOLEAN DEFAULT TRUE,
-    FOREIGN KEY (id_pelicula) REFERENCES pelicula(id_pelicula)
+    id_genero INT,
+    PRIMARY KEY (id_pelicula, id_genero),
+    FOREIGN KEY (id_pelicula) REFERENCES peliculas(id_pelicula) ON DELETE CASCADE,
+    FOREIGN KEY (id_genero) REFERENCES generos(id_genero) ON DELETE CASCADE
 );
 
--- 3. COMUNIDAD
-
-CREATE TABLE resena (
+CREATE TABLE resenas (
     id_resena INT AUTO_INCREMENT PRIMARY KEY,
-    id_usuario INT NOT NULL,
-    id_pelicula INT NOT NULL,
-    calificacion_estrellas DECIMAL(2,1),
+    id_usuario INT,
+    id_pelicula INT,
+    puntuacion_estrellas INT DEFAULT NULL CHECK (puntuacion_estrellas BETWEEN 1 AND 5),
     comentario TEXT,
-    estado_moderacion ENUM('Aprobado', 'Pendiente', 'Oculto') DEFAULT 'Aprobado',
-    fecha_publicacion DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (id_usuario) REFERENCES usuario(id_usuario),
-    FOREIGN KEY (id_pelicula) REFERENCES pelicula(id_pelicula),
-    CHECK (calificacion_estrellas BETWEEN 1 AND 5)
+    fecha_publicacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE,
+    FOREIGN KEY (id_pelicula) REFERENCES peliculas(id_pelicula) ON DELETE CASCADE
 );
 
-CREATE TABLE favorito (
-    id_usuario INT NOT NULL,
-    id_pelicula INT NOT NULL,
-    fecha_agregado DATETIME DEFAULT CURRENT_TIMESTAMP,
+CREATE TABLE interacciones_peliculas (
+    id_usuario INT,
+    id_pelicula INT,
+    vista BOOLEAN DEFAULT FALSE,
+    favorita BOOLEAN DEFAULT FALSE,
+    en_lista_seguimiento BOOLEAN DEFAULT FALSE,
+    fecha_favorito TIMESTAMP DEFAULT NULL,
     PRIMARY KEY (id_usuario, id_pelicula),
-    FOREIGN KEY (id_usuario) REFERENCES usuario(id_usuario) ON DELETE CASCADE,
-    FOREIGN KEY (id_pelicula) REFERENCES pelicula(id_pelicula) ON DELETE CASCADE
+    FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE,
+    FOREIGN KEY (id_pelicula) REFERENCES peliculas(id_pelicula) ON DELETE CASCADE
 );
 
--- 4. CINES
+CREATE TABLE colecciones (
+    id_coleccion INT AUTO_INCREMENT PRIMARY KEY,
+    id_usuario INT,
+    titulo_coleccion VARCHAR(150) NOT NULL,
+    descripcion TEXT,
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    eliminado BOOLEAN NOT NULL DEFAULT FALSE, -- Control de Soft Delete
+    fecha_eliminacion DATETIME DEFAULT NULL,  -- Auditoría temporal de baja física
+    FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE
+);
 
-CREATE TABLE cine (
+CREATE TABLE colecciones_peliculas (
+    id_coleccion INT,
+    id_pelicula INT,
+    PRIMARY KEY (id_coleccion, id_pelicula),
+    FOREIGN KEY (id_coleccion) REFERENCES colecciones(id_coleccion) ON DELETE CASCADE,
+    FOREIGN KEY (id_pelicula) REFERENCES peliculas(id_pelicula) ON DELETE RESTRICT
+);
+
+
+
+CREATE TABLE seguidores (
+    id_seguidor INT,  -- Usuario que sigue
+    id_seguido INT,   -- Usuario que es seguido
+    fecha_seguimiento TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id_seguidor, id_seguido),
+    FOREIGN KEY (id_seguidor) REFERENCES usuarios(id_usuario) ON DELETE CASCADE,
+    FOREIGN KEY (id_seguido) REFERENCES usuarios(id_usuario) ON DELETE CASCADE
+);
+
+
+-- --- MÓDULO: INFRAESTRUCTURA DE CINES Y PLANIFICACIÓN DE CARTELERA ---
+
+CREATE TABLE cines (
     id_cine INT AUTO_INCREMENT PRIMARY KEY,
-    nombre VARCHAR(100) NOT NULL,
-    direccion VARCHAR(200),
-    ciudad VARCHAR(100),
-    estado BOOLEAN DEFAULT TRUE
+    nombre_cine VARCHAR(100) NOT NULL,
+    direccion VARCHAR(255) NOT NULL,
+    horarios_apertura VARCHAR(100),
+    url_mapa_embebido TEXT DEFAULT NULL, -- URL para cargar el mapa interactivo nativo
+    estado_cine VARCHAR(30) NOT NULL DEFAULT 'Activo', -- 'Activo', 'No operativo', 'Próximamente'
+    observaciones TEXT DEFAULT NULL,
+    eliminado BOOLEAN NOT NULL DEFAULT FALSE, -- Control de Soft Delete
+    fecha_eliminacion DATETIME DEFAULT NULL   -- Auditoría temporal de baja física
 );
-
-CREATE TABLE sala (
+CREATE TABLE salas (
     id_sala INT AUTO_INCREMENT PRIMARY KEY,
-    id_cine INT NOT NULL,
-    nombre VARCHAR(50) NOT NULL,
-    formato_sala VARCHAR(20),
-    capacidad_total INT NOT NULL,
-    FOREIGN KEY (id_cine) REFERENCES cine(id_cine)
+    id_cine INT,
+    nombre_sala VARCHAR(50) NOT NULL,
+    tipo_sala VARCHAR(20) NOT NULL DEFAULT 'Stand.', -- 'Stand.', 'IMAX', '4DX', 'VIP'	
+    tipo_formato VARCHAR(20) NOT NULL,                -- '2D', '3D'
+    capacidad_asientos INT NOT NULL DEFAULT 0,
+    estado_sala VARCHAR(20) NOT NULL DEFAULT 'Activa', -- 'Activa', 'Inactiva'
+    eliminado BOOLEAN NOT NULL DEFAULT FALSE, -- Control de Soft Delete
+    fecha_eliminacion DATETIME DEFAULT NULL,  -- Auditoría temporal de baja física
+    FOREIGN KEY (id_cine) REFERENCES cines(id_cine) ON DELETE CASCADE
 );
 
-CREATE TABLE asiento (
-    id_asiento INT AUTO_INCREMENT PRIMARY KEY,
-    id_sala INT NOT NULL,
-    fila VARCHAR(5) NOT NULL,
-    numero INT NOT NULL,
-    coord_x INT,
-    coord_y INT,
-    estado_fisico ENUM('Disponible', 'Mantenimiento', 'Inhabilitado') DEFAULT 'Disponible',
-    FOREIGN KEY (id_sala) REFERENCES sala(id_sala),
-    UNIQUE (id_sala, fila, numero)
-);
-
--- 5. FUNCIONES
-
-CREATE TABLE funcion (
+CREATE TABLE funciones (
     id_funcion INT AUTO_INCREMENT PRIMARY KEY,
-    id_pelicula INT NOT NULL,
-    id_sala INT NOT NULL,
-    fecha_hora_inicio DATETIME NOT NULL,
-    fecha_hora_fin DATETIME NOT NULL,
-    idioma VARCHAR(50),
-    formato VARCHAR(20),
-    FOREIGN KEY (id_pelicula) REFERENCES pelicula(id_pelicula),
-    FOREIGN KEY (id_sala) REFERENCES sala(id_sala)
+    id_pelicula INT,
+    id_sala INT,
+    fecha_hora DATETIME NOT NULL,
+    precio_base DECIMAL(10,2) NOT NULL,
+    FOREIGN KEY (id_pelicula) REFERENCES peliculas(id_pelicula) ON DELETE RESTRICT,
+    FOREIGN KEY (id_sala) REFERENCES salas(id_sala) ON DELETE CASCADE
 );
 
-CREATE TABLE funcion_asiento (
-    id_funcion INT NOT NULL,
-    id_asiento INT NOT NULL,
-    estado ENUM('Disponible', 'Reservado', 'Vendido') DEFAULT 'Disponible',
+CREATE TABLE asientos (
+    id_asiento INT AUTO_INCREMENT PRIMARY KEY,
+    id_sala INT,
+    fila VARCHAR(5) NOT NULL,
+    columna INT NOT NULL,
+    tipo_asiento VARCHAR(20) DEFAULT 'Regular',       -- Ej: 'Regular', 'VIP', 'Discapacitado'
+    estado_asiento VARCHAR(20) NOT NULL DEFAULT 'Activo', -- 'Activo', 'Inactiva' (Para pasillos/bloqueos)
+    eliminado BOOLEAN NOT NULL DEFAULT FALSE, -- Control de Soft Delete
+    fecha_eliminacion DATETIME DEFAULT NULL,  -- Auditoría temporal de baja física
+    FOREIGN KEY (id_sala) REFERENCES salas(id_sala) ON DELETE CASCADE
+);
+
+
+-- --- MÓDULO: SELECCIÓN DE BUTACAS EN TIEMPO REAL ---
+
+CREATE TABLE asientos_funciones (
+    id_funcion INT,
+    id_asiento INT,
+    estado VARCHAR(20) DEFAULT 'Disponible', -- 'Disponible', 'Ocupado', 'Bloqueado'
     PRIMARY KEY (id_funcion, id_asiento),
-    FOREIGN KEY (id_funcion) REFERENCES funcion(id_funcion) ON DELETE CASCADE,
-    FOREIGN KEY (id_asiento) REFERENCES asiento(id_asiento) ON DELETE CASCADE
+    FOREIGN KEY (id_funcion) REFERENCES funciones(id_funcion) ON DELETE CASCADE,
+    FOREIGN KEY (id_asiento) REFERENCES asientos(id_asiento) ON DELETE CASCADE
 );
 
-CREATE TABLE tarifa (
-    id_tarifa INT AUTO_INCREMENT PRIMARY KEY,
-    nombre VARCHAR(50) NOT NULL,
-    precio DECIMAL(8,2) NOT NULL,
-    dia_aplica ENUM(
-        'Lunes',
-        'Martes',
-        'Miercoles',
-        'Jueves',
-        'Viernes',
-        'Sabado',
-        'Domingo',
-        'Todos'
-    ) DEFAULT 'Todos'
+CREATE TABLE bloqueos_temporales (
+    id_bloqueo INT AUTO_INCREMENT PRIMARY KEY,
+    id_usuario INT,
+    id_funcion INT,
+    id_asiento INT,
+    fecha_bloqueo TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expira_en TIMESTAMP NOT NULL,
+    FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE,
+    FOREIGN KEY (id_funcion, id_asiento) REFERENCES asientos_funciones(id_funcion, id_asiento) ON DELETE CASCADE
 );
 
-CREATE TABLE promocion (
-    id_promocion INT AUTO_INCREMENT PRIMARY KEY,
-    codigo_cupon VARCHAR(20) UNIQUE NOT NULL,
-    porcentaje_descuento DECIMAL(5,2),
-    monto_descuento DECIMAL(8,2),
-    fecha_inicio DATETIME,
-    fecha_fin DATETIME,
-    limite_usos INT
+
+-- --- MÓDULO: CONFITERÍA / DULCERÍA ---
+
+CREATE TABLE categorias_confiteria (
+    id_categoria_confi INT AUTO_INCREMENT PRIMARY KEY,
+    nombre_categoria VARCHAR(50) NOT NULL
 );
 
--- 6. RESERVAS
-
-CREATE TABLE reserva (
-    id_reserva INT AUTO_INCREMENT PRIMARY KEY,
-    id_usuario INT NOT NULL,
-    id_funcion INT NOT NULL,
-    id_promocion INT NULL,
-    fecha_reserva DATETIME DEFAULT CURRENT_TIMESTAMP,
-    fecha_expiracion DATETIME NOT NULL,
-    monto_subtotal DECIMAL(10,2) NOT NULL,
-    descuento_aplicado DECIMAL(10,2) DEFAULT 0.00,
-    monto_total DECIMAL(10,2) NOT NULL,
-    estado_pago ENUM('Pendiente', 'Pagado', 'Cancelado', 'Reembolsado') DEFAULT 'Pendiente',
-    metodo_pago VARCHAR(50),
-    transaccion_id VARCHAR(100),
-    FOREIGN KEY (id_usuario) REFERENCES usuario(id_usuario),
-    FOREIGN KEY (id_funcion) REFERENCES funcion(id_funcion),
-    FOREIGN KEY (id_promocion) REFERENCES promocion(id_promocion)
-);
-
-CREATE TABLE boleto (
-    id_boleto INT AUTO_INCREMENT PRIMARY KEY,
-    id_reserva INT NOT NULL,
-    id_funcion INT NOT NULL,
-    id_asiento INT NOT NULL,
-    id_tarifa INT NOT NULL,
-    codigo_qr VARCHAR(255) UNIQUE NOT NULL,
-    precio_pagado DECIMAL(8,2) NOT NULL,
-    estado_ingreso ENUM('Vigente', 'Usado') DEFAULT 'Vigente',
-    FOREIGN KEY (id_reserva) REFERENCES reserva(id_reserva),
-    FOREIGN KEY (id_funcion) REFERENCES funcion(id_funcion),
-    FOREIGN KEY (id_asiento) REFERENCES asiento(id_asiento),
-    FOREIGN KEY (id_tarifa) REFERENCES tarifa(id_tarifa),
-    UNIQUE (id_funcion, id_asiento)
-);
-
--- 7. SNACKS
-
-CREATE TABLE categoria_snack (
-    id_categoria INT AUTO_INCREMENT PRIMARY KEY,
-    nombre VARCHAR(50) NOT NULL UNIQUE,
-    orden_visual INT NOT NULL DEFAULT 0,
-    estado BOOLEAN DEFAULT TRUE
-);
-
-CREATE TABLE producto_snack (
+CREATE TABLE productos_confiteria (
     id_producto INT AUTO_INCREMENT PRIMARY KEY,
-    id_categoria INT NOT NULL,
-    nombre VARCHAR(100) NOT NULL,
-    descripcion VARCHAR(255),
-    precio_actual DECIMAL(8,2) NOT NULL,
-    url_imagen VARCHAR(500) NOT NULL,
-    is_activo BOOLEAN DEFAULT TRUE,
-    FOREIGN KEY (id_categoria) REFERENCES categoria_snack(id_categoria) ON DELETE CASCADE
+    id_categoria_confi INT,
+    nombre_producto VARCHAR(100) NOT NULL,
+    descripcion TEXT,
+    precio DECIMAL(10,2) NOT NULL,
+    url_imagen VARCHAR(255) NOT NULL DEFAULT 'default_snack.png',
+    stock INT NOT NULL DEFAULT 0,
+    FOREIGN KEY (id_categoria_confi) REFERENCES categorias_confiteria(id_categoria_confi) ON DELETE SET NULL
 );
 
-CREATE TABLE reserva_snack (
-    id_reserva INT NOT NULL,
-    id_producto INT NOT NULL,
+CREATE TABLE carrito_confiteria (
+    id_carrito INT AUTO_INCREMENT PRIMARY KEY,
+    id_usuario INT,
+    id_producto INT,
+    cantidad INT NOT NULL DEFAULT 1,
+    FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE,
+    FOREIGN KEY (id_producto) REFERENCES productos_confiteria(id_producto) ON DELETE CASCADE
+);
+
+
+-- --- MÓDULO: PROCESAMIENTO TRANSACCIONAL Y EXPEDIENTES ADMINISTRATIVOS ---
+
+CREATE TABLE transacciones (
+    id_transaccion INT AUTO_INCREMENT PRIMARY KEY,
+    id_usuario INT,
+    id_funcion INT,
+    monto_boletos DECIMAL(10,2) NOT NULL,
+    monto_confiteria DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    monto_total DECIMAL(10,2) NOT NULL,
+    estado_pago VARCHAR(20) DEFAULT 'Pendiente', -- 'Pendiente', 'Aprobado', 'Fallido', 'Reembolsada'
+    metodo_pago VARCHAR(50),                     -- Ej: 'Visa ****4521'
+    fecha_transaccion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario) ON DELETE RESTRICT,
+    FOREIGN KEY (id_funcion) REFERENCES funciones(id_funcion) ON DELETE RESTRICT
+);
+
+CREATE TABLE detalle_boleta_asientos (
+    id_detalle_asiento INT AUTO_INCREMENT PRIMARY KEY,
+    id_transaccion INT,
+    id_asiento INT,
+    ingresado BOOLEAN DEFAULT FALSE,         -- Control de acceso móvil (QR)
+    fecha_ingreso TIMESTAMP DEFAULT NULL,
+    FOREIGN KEY (id_transaccion) REFERENCES transacciones(id_transaccion) ON DELETE CASCADE,
+    FOREIGN KEY (id_asiento) REFERENCES asientos(id_asiento) ON DELETE RESTRICT
+);
+
+CREATE TABLE detalle_boleta_confiteria (
+    id_detalle_confi INT AUTO_INCREMENT PRIMARY KEY,
+    id_transaccion INT,
+    id_producto INT,
     cantidad INT NOT NULL,
-    precio_unitario DECIMAL(8,2) NOT NULL,
-    subtotal DECIMAL(10,2) GENERATED ALWAYS AS (cantidad * precio_unitario) STORED,
-    PRIMARY KEY (id_reserva, id_producto),
-    FOREIGN KEY (id_reserva) REFERENCES reserva(id_reserva) ON DELETE CASCADE,
-    FOREIGN KEY (id_producto) REFERENCES producto_snack(id_producto),
-    CHECK (cantidad > 0)
+    precio_unitario DECIMAL(10,2) NOT NULL,
+    FOREIGN KEY (id_transaccion) REFERENCES transacciones(id_transaccion) ON DELETE CASCADE,
+    FOREIGN KEY (id_producto) REFERENCES productos_confiteria(id_producto) ON DELETE RESTRICT
 );
 
--- =========================================================
--- INDICES
--- =========================================================
+CREATE TABLE boletas_tickets (
+    id_ticket INT AUTO_INCREMENT PRIMARY KEY,
+    id_transaccion INT,
+    codigo_qr_token VARCHAR(255) NOT NULL UNIQUE, -- Almacena el ID plano del QR
+    estado_ticket VARCHAR(20) DEFAULT 'Valido',   -- 'Valido', 'Canjeado', 'Cancelado'
+    fecha_emision TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (id_transaccion) REFERENCES transacciones(id_transaccion) ON DELETE CASCADE
+);
 
-CREATE INDEX idx_funcion_fecha ON funcion(fecha_hora_inicio);
-CREATE INDEX idx_resena_pelicula ON resena(id_pelicula);
-CREATE INDEX idx_reserva_usuario ON reserva(id_usuario);
+CREATE TABLE solicitudes_reembolso (
+    id_reembolso INT AUTO_INCREMENT PRIMARY KEY,
+    id_transaccion INT,
+    motivo TEXT NOT NULL,
+    tipo_reembolso VARCHAR(30) NOT NULL DEFAULT 'Reembolso total',
+    monto_reembolsado DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    estado_solicitud VARCHAR(20) DEFAULT 'Evaluacion',             
+    comentario_administrador TEXT DEFAULT NULL,                    
+    fecha_solicitud TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    fecha_resolucion TIMESTAMP NULL DEFAULT NULL, 
+    FOREIGN KEY (id_transaccion) REFERENCES transacciones(id_transaccion) ON DELETE CASCADE
+);
 
--- =========================================================
--- DATOS
--- =========================================================
 
--- ============================================================
---  FILMATE_DB — SCRIPT DE DATOS DE PRUEBA
---  Basado en el schema de filmate_db (script 1)
---  Datos adaptados del script 2
--- ============================================================
+-- --- MÓDULO: AUDITORÍA EXTERNA Y DE SISTEMAS ---
+
+CREATE TABLE log_validaciones_qr (
+    id_log INT AUTO_INCREMENT PRIMARY KEY,
+    ticket_escaneado VARCHAR(100) NOT NULL,      -- Código leído en la puerta (ej: 'TXN-2051-A')
+    fecha_escaneo TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    resultado_validacion VARCHAR(20) NOT NULL,  -- 'Valida', 'Inválida', 'Ya Usada'
+    id_usuario_control INT DEFAULT NULL,         -- Empleado en puerta
+    FOREIGN KEY (id_usuario_control) REFERENCES usuarios(id_usuario) ON DELETE SET NULL
+);
+
+CREATE TABLE log_actividad_sistema (
+    id_log INT AUTO_INCREMENT PRIMARY KEY,
+    id_usuario INT,
+    accion_realizada TEXT NOT NULL,              -- Ej: 'Configuración de Precios alterada'
+    modulo_afectado VARCHAR(50) NOT NULL,        -- 'USUARIOS', 'CARTELERA', 'TICKETS'
+    ip_origen VARCHAR(45) NOT NULL,              -- Dirección IPv4/IPv6 de auditoría
+    fecha_hora TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario) ON DELETE SET NULL
+);
+
+CREATE TABLE historial_actividad (
+    id_actividad INT AUTO_INCREMENT PRIMARY KEY,
+    id_usuario INT NOT NULL,
+    tipo_evento VARCHAR(20) NOT NULL,            -- 'RESENA', 'SEGUIDOR', etc.
+    id_referencia_usuario INT DEFAULT NULL,
+    id_referencia_pelicula INT DEFAULT NULL,
+    id_referencia_resena INT DEFAULT NULL,
+    texto_breve TEXT DEFAULT NULL,
+    fecha_evento TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (id_usuario) REFERENCES usuarios (id_usuario) ON DELETE CASCADE
+);
+
+
+-- ====================================================================
+-- 4. DISPARADORES AUTOMÁTICOS (TRIGGERS DE NEGOCIO)
+-- ====================================================================
+DELIMITER //
+
+-- Registro automatizado en la bitácora social cuando un usuario publica una reseña
+CREATE TRIGGER despues_de_publicar_resena
+AFTER INSERT ON resenas
+FOR EACH ROW
+BEGIN
+    INSERT INTO historial_actividad (id_usuario, tipo_evento, id_referencia_pelicula, id_referencia_resena, texto_breve)
+    VALUES (NEW.id_usuario, 'RESENA', NEW.id_pelicula, NEW.id_resena, NEW.comentario);
+END //
+
+DELIMITER ;
+
+
+-- ====================================================================
+-- 5. INSERCIÓN DE VALORES MAESTROS INICIALES DE CONTROL
+-- ====================================================================
+-- Cargar el documento maestro por defecto exigido por la tabla de usuarios
+INSERT INTO tipos_documento (id_tipo_doc, siglas, descripcion) 
+VALUES (1, 'DNI', 'Documento Nacional de Identidad');
+
+-- Cargar los roles mínimos requeridos por tus interfaces del backoffice
+INSERT INTO roles (id_role, nombre_rol, descripcion) 
+VALUES 
+(1, 'ADMINISTRADOR', 'Acceso total al panel administrativo del cine, gestión de salas y permisos'),
+(2, 'CLIENTE', 'Acceso exclusivo al aplicativo web B2C, cartelera social y pasarela de compras');
+
+CREATE INDEX idx_interacciones_usuario_favorita 
+ON interacciones_peliculas (id_usuario, favorita, fecha_favorito);
+CREATE INDEX idx_peliculas_busqueda 
+ON peliculas (estado_pelicula, anio_lanzamiento, clasificacion);
+CREATE INDEX idx_seguidores_siguiendo 
+ON seguidores (id_seguido, id_seguidor);
+CREATE INDEX idx_boletas_qr_token 
+ON boletas_tickets (codigo_qr_token);
+CREATE INDEX idx_transacciones_fecha_estado 
+ON transacciones (fecha_transaccion, estado_pago);
+CREATE INDEX idx_reembolsos_estado 
+ON solicitudes_reembolso (estado_solicitud, fecha_solicitud);
+CREATE INDEX idx_funciones_sala_fecha 
+ON funciones (id_sala, fecha_hora);
+CREATE INDEX idx_asientos_sala_coordenadas 
+ON asientos (id_sala, fila, columna);
+CREATE INDEX idx_log_sistema_fecha 
+ON log_actividad_sistema (fecha_hora, modulo_afectado);
+CREATE INDEX idx_historial_actividad_usuario_fecha 
+ON historial_actividad (id_usuario, fecha_evento DESC);
+CREATE INDEX idx_usuarios_soft_delete ON usuarios(eliminado, id_usuario);
+CREATE INDEX idx_peliculas_soft_delete ON peliculas(eliminado, id_pelicula);
+-- ====================================================================
+-- BLOQUE 1: INSERCIÓN DE SEGURIDAD, CONFIGURACIÓN BASE Y USUARIOS (RBAC)
+-- ====================================================================
 
 USE filmate_db;
 
--- ============================================================
--- 1. ROLES
--- ============================================================
-INSERT INTO rol (id_rol, nombre) VALUES
-(1, 'Admin'),
-(2, 'Cliente');
+-- 1.1. ASEGURAR VALORES MAESTROS DE ROLES (Por si acaso)
+-- El rol administrador y cliente ya se crean en el script base, pero aseguramos IDs correctos.
+INSERT INTO roles (id_role, nombre_rol, descripcion) 
+VALUES 
+(1, 'ADMINISTRADOR', 'Acceso total al panel administrativo del cine, gestión de salas y permisos')
+ON DUPLICATE KEY UPDATE nombre_rol=nombre_rol;
 
--- ============================================================
--- 2. USUARIOS (2 Admins + 28 Clientes)
--- ============================================================
-INSERT INTO usuario (id_rol, nombres, apellidos, correo, password_hash, estado, fecha_registro) VALUES
-(1, 'Carlos',    'Mendoza',    'carlos.mendoza@filmate.pe',  '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 'Activo',   '2026-01-05 09:00:00'),
-(1, 'Valeria',   'Torres',     'valeria.torres@filmate.pe',  '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 'Activo',   '2026-01-06 10:00:00'),
-(2, 'Andrés',    'Quispe',     'andres.quispe@gmail.com',    '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 'Activo',   '2026-02-10 14:23:00'),
-(2, 'Lucía',     'Paredes',    'lucia.paredes@gmail.com',    '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 'Activo',   '2026-02-11 09:45:00'),
-(2, 'Miguel',    'Ramos',      'miguel.ramos@hotmail.com',   '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 'Activo',   '2026-02-12 16:30:00'),
-(2, 'Sofía',     'Gutierrez',  'sofia.gutierrez@gmail.com',  '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 'Activo',   '2026-03-01 11:00:00'),
-(2, 'Diego',     'Llanos',     'diego.llanos@yahoo.com',     '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 'Activo',   '2026-03-03 08:15:00'),
-(2, 'Camila',    'Flores',     'camila.flores@gmail.com',    '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 'Activo',   '2026-03-05 19:20:00'),
-(2, 'Rodrigo',   'Salinas',    'rodrigo.salinas@gmail.com',  '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 'Activo',   '2026-03-07 12:00:00'),
-(2, 'Natalia',   'Vega',       'natalia.vega@gmail.com',     '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 'Activo',   '2026-03-10 10:30:00'),
-(2, 'Sebastián', 'Castro',     'sebastian.castro@gmail.com', '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 'Activo',   '2026-04-01 14:00:00'),
-(2, 'Fernanda',  'Moran',      'fernanda.moran@gmail.com',   '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 'Bloqueado','2026-04-05 09:00:00'),
-(2, 'Jorge',     'Huanca',     'jorge.huanca@hotmail.com',   '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 'Activo',   '2026-04-08 17:45:00'),
-(2, 'Paola',     'Rios',       'paola.rios@gmail.com',       '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 'Activo',   '2026-04-10 13:20:00'),
-(2, 'Ivan',      'Mamani',     'ivan.mamani@gmail.com',      '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 'Activo',   '2026-04-15 08:00:00'),
-(2, 'Claudia',   'Rueda',      'claudia.rueda@gmail.com',    '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 'Activo',   '2026-04-20 11:30:00'),
-(2, 'Erick',     'Soto',       'erick.soto@gmail.com',       '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 'Activo',   '2026-05-01 16:00:00'),
-(2, 'Daniela',   'Lara',       'daniela.lara@gmail.com',     '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 'Activo',   '2026-05-03 10:00:00'),
-(2, 'Alejandro', 'Vargas',     'alejandro.vargas@gmail.com', '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 'Activo',   '2026-05-05 12:45:00'),
-(2, 'Mariana',   'Delgado',    'mariana.delgado@gmail.com',  '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 'Activo',   '2026-05-10 09:20:00'),
-(2, 'Paul',      'Condori',    'paul.condori@gmail.com',     '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 'Activo',   '2026-05-15 14:00:00'),
-(2, 'Kiara',     'Reyes',      'kiara.reyes@gmail.com',      '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 'Activo',   '2026-05-20 16:30:00'),
-(2, 'Omar',      'Salas',      'omar.salas@yahoo.com',       '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 'Inactivo', '2026-06-01 11:00:00'),
-(2, 'Brenda',    'Chávez',     'brenda.chavez@gmail.com',    '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 'Activo',   '2026-06-05 09:30:00'),
-(2, 'Lenin',     'Huamán',     'lenin.huaman@gmail.com',     '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 'Activo',   '2026-06-10 10:00:00'),
-(2, 'Rosa',      'Apaza',      'rosa.apaza@gmail.com',       '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 'Activo',   '2026-06-15 08:45:00'),
-(2, 'Jhon',      'Zuñiga',     'jhon.zuniga@gmail.com',      '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 'Activo',   '2026-07-01 13:00:00'),
-(2, 'Ariana',    'Paz',        'ariana.paz@gmail.com',       '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 'Activo',   '2026-07-05 15:00:00'),
-(2, 'Marco',     'Vilca',      'marco.vilca@gmail.com',      '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 'Activo',   '2026-07-10 12:00:00'),
-(2, 'Yesenia',   'Ticona',     'yesenia.ticona@gmail.com',   '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 'Activo',   '2026-07-15 17:00:00');
--- ============================================================
--- 3. GÉNEROS
--- ============================================================
-INSERT INTO genero (id_genero, nombre) VALUES
-(1,  'Accion'),
-(2,  'Aventura'),
-(3,  'Animacion'),
-(4,  'Comedia'),
-(5,  'Crimen'),
-(6,  'Drama'),
-(7,  'Terror'),
-(8,  'Ciencia Ficcion'),
-(9,  'Thriller'),
-(10, 'Romance'),
-(11, 'Fantasia'),
-(12, 'Misterio'),
-(13, 'Musical'),
-(14, 'Belica'),
-(15, 'Documental'),
-(16, 'Superheroes'),
-(17, 'Familiar');
+INSERT INTO roles (id_role, nombre_rol, descripcion) 
+VALUES 
+(2, 'CLIENTE', 'Acceso exclusivo al aplicativo web B2C, cartelera social y pasarela de compras')
+ON DUPLICATE KEY UPDATE nombre_rol=nombre_rol;
 
--- ============================================================
--- 4. PELÍCULAS (20 películas)
--- ============================================================
-INSERT INTO pelicula (id_pelicula, titulo, sinopsis, duracion_minutos, clasificacion_edad, url_poster, url_trailer, url_banner, categoria_cartelera, estado_registro) VALUES
 
-(1, 'Dune: Parte Dos',
- 'Paul Atreides se une a los Fremen y busca venganza contra los conspiradores que destruyeron a su familia mientras intenta evitar el futuro que solo él puede predecir.',
- 166, '+14',
- 'https://image.tmdb.org/t/p/w500/8b8R8l88Qje9dn9OE8PY05Nxl1X.jpg',
- 'https://www.youtube.com/embed/Way9Dexny3w',
- 'https://image.tmdb.org/t/p/original/xOMo8BRK7PfcJv9JCnx7s5hj0PX.jpg',
- 'Estreno', 'Activo'),
+-- 1.2. INSERCIÓN DE PERMISOS DEL SISTEMA
+INSERT INTO permisos (codigo_permiso, descripcion, modulo) VALUES
+-- Módulo: Administración y Configuración
+('CONFIG_PRECIOS', 'Permite alterar el precio base de las funciones', 'ADMINISTRACIÓN'),
+('GESTIONAR_CINES', 'Permite crear, editar o dar de baja cines y salas', 'ADMINISTRACIÓN'),
+('GESTIONAR_PELICULAS', 'Permite actualizar el catálogo y sincronizar con TMDb', 'ADMINISTRACIÓN'),
+-- Módulo: Ventas y Tickets
+('VER_HISTORIAL_TXN', 'Permite visualizar todas las transacciones del sistema', 'VENTAS Y TICKETS'),
+('PROCESAR_REEMBOLSOS', 'Permite evaluar y aprobar solicitudes de reembolso', 'VENTAS Y TICKETS'),
+('VALIDAR_TICKETS_QR', 'Permite escanear y validar accesos en puerta', 'VENTAS Y TICKETS'),
+-- Módulo: Cliente / Operaciones B2C
+('COMPRAR_BOLETOS', 'Permite reservar asientos y realizar pagos de funciones', 'OPERACIONES CLIENTE'),
+('GESTIONAR_CARRITO', 'Permite interactuar con el carrito de confitería', 'OPERACIONES CLIENTE'),
+('PUBLICAR_RESENAS', 'Permite calificar películas y escribir comentarios', 'SOCIAL'),
+('SEGUIR_USUARIOS', 'Permite seguir e interactuar con el feed de otros usuarios', 'SOCIAL');
 
-(2, 'Deadpool & Wolverine',
- 'Wade Wilson sale del retiro para unirse a Wolverine en una misión que cambiará la historia del Universo Marvel.',
- 128, '+14',
- 'https://image.tmdb.org/t/p/w500/8cdWjvZQUExUUTzyp4t6EDMubfO.jpg',
- 'https://www.youtube.com/embed/73_1biulkYk',
- 'https://image.tmdb.org/t/p/original/30YacPAcxpNemhhwX667IABLIAk.jpg',
- 'Estreno', 'Activo'),
 
-(3, 'Inside Out 2',
- 'Riley enfrenta la adolescencia cuando nuevas emociones — incluyendo Ansiedad — irrumpen y complican todo.',
- 100, 'APT',
- 'https://image.tmdb.org/t/p/w500/vpnVM9B6NMmQpWeZvzLvDESb2QY.jpg',
- 'https://www.youtube.com/embed/LEjhY15eCx0',
- 'https://image.tmdb.org/t/p/original/4HodYYKEIsGOdinkGi2Ucz6X9i0.jpg',
- 'Cartelera', 'Activo'),
+-- 1.3. ASIGNACIÓN DE PERMISOS A ROLES (roles_permisos)
+-- Administrador: Recibe absolutamente todos los permisos
+INSERT INTO roles_permisos (id_role, id_permiso)
+SELECT 1, id_permiso FROM permisos;
 
-(4, 'Alien: Romulus',
- 'Un grupo de jóvenes colonos espaciales se enfrenta a la forma de vida más aterradora del universo mientras explora las ruinas de una estación espacial abandonada.',
- 119, '+18',
- 'https://image.tmdb.org/t/p/w500/b33nnKl1GSFbao4l3fZDDqsMx0F.jpg',
- 'https://www.youtube.com/embed/5nWH2Pd-x-c',
- 'https://image.tmdb.org/t/p/original/b33nnKl1GSFbao4l3fZDDqsMx0F.jpg',
- 'Cartelera', 'Activo'),
+-- Cliente: Recibe solo permisos de compra, dulcería y redes sociales
+INSERT INTO roles_permisos (id_role, id_permiso)
+SELECT 2, id_permiso FROM permisos 
+WHERE codigo_permiso IN ('COMPRAR_BOLETOS', 'GESTIONAR_CARRITO', 'PUBLICAR_RESENAS', 'SEGUIR_USUARIOS');
 
-(5, 'Oppenheimer',
- 'La historia de J. Robert Oppenheimer y su papel en el desarrollo de la primera bomba atómica durante la Segunda Guerra Mundial.',
- 180, '+14',
- 'https://image.tmdb.org/t/p/w500/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg',
- 'https://www.youtube.com/embed/uYPbbksJxIg',
- 'https://image.tmdb.org/t/p/original/rLb2cwF3Pazuxaj0sRXQ037tGI1.jpg',
- 'Cartelera', 'Activo'),
-
-(6, 'Kung Fu Panda 4',
- 'Po debe entrenar a un nuevo guerrero dragón y enfrentar a una villana con el poder de invocar a los enemigos del pasado.',
- 94, 'APT',
- 'https://image.tmdb.org/t/p/w500/kDp1vUBnMpe8ak4rjgl3cLELqjU.jpg',
- 'https://www.youtube.com/embed/kg3Q63gzF6I',
- 'https://image.tmdb.org/t/p/original/kDp1vUBnMpe8ak4rjgl3cLELqjU.jpg',
- 'Cartelera', 'Activo'),
-
-(7, 'Gladiador II',
- 'Lucio, sobrino del fallecido Máximo, lucha en el Coliseo romano mientras los tiranos Geta y Caracala gobiernan el Imperio.',
- 148, '+14',
- 'https://image.tmdb.org/t/p/w500/2cxhvwyEwRlysAmRH4iodkvo0z5.jpg',
- 'https://www.youtube.com/embed/ZEJgVq1K8S4',
- 'https://image.tmdb.org/t/p/original/tkFE9oi7iBMBSWLYHoQMfWyFi1Q.jpg',
- 'Estreno', 'Activo'),
-
-(8, 'Wicked',
- 'La historia no contada de las brujas de Oz: cómo la amistad entre Elphaba y Glinda fue transformada por traición y poder.',
- 160, 'APT',
- 'https://image.tmdb.org/t/p/w500/xDGbZ0JJ3mYaGKy4Nzd9Kph6M9L.jpg',
- 'https://www.youtube.com/embed/JDSRDbFqc_E',
- 'https://image.tmdb.org/t/p/original/rBOOfRfZsS7mAEFKKzMQQMFNUmQ.jpg',
- 'Estreno', 'Activo'),
-
-(9, 'Moana 2',
- 'Moana emprende un nuevo viaje a los mares ancestrales de Oceanía tras recibir un llamado inesperado de sus ancestros.',
- 100, 'APT',
- 'https://lumiere-a.akamaihd.net/v1/images/image_25b12a37.jpeg?region=0%2C0%2C540%2C810',
- 'https://www.youtube.com/embed/hDZ7y8RP5HE',
- 'https://image.tmdb.org/t/p/original/aLVkiINlIeCkCJIqeHZjN988eqp.jpg',
- 'Proximamente', 'Activo'),
-
-(10, 'Venom: El Último Baile',
- 'Eddie Brock y Venom se ven obligados a tomar una decisión devastadora cuando una nueva amenaza acecha sus vidas.',
- 109, '+14',
- 'https://image.tmdb.org/t/p/w500/aosm8NMQ3UyoBVpSxyimorCQykC.jpg',
- 'https://www.youtube.com/embed/jcTP9BvoW1o',
- 'https://image.tmdb.org/t/p/original/aosm8NMQ3UyoBVpSxyimorCQykC.jpg',
- 'Cartelera', 'Activo'),
-
-(11, 'El Señor de los Anillos: La Guerra de los Rohirrim',
- 'Precuela animada que narra la épica batalla de Helm''s Deep desde la perspectiva de la Casa de Helm Hammerhand.',
- 134, '+14',
- 'https://imagenes.hobbyconsolas.com/files/image_990_auto/uploads/imagenes/2024/10/24/6903dbaca1b4c.jpeg',
- 'https://www.youtube.com/embed/jrhSLlos5bU',
- 'https://image.tmdb.org/t/p/original/r4sRSGEAkuCIBsNr11fDwVOE8nq.jpg',
- 'Proximamente', 'Activo'),
-
-(12, 'Joker: Folie à Deux',
- 'Arthur Fleck está internado en Arkham esperando su juicio cuando conoce al amor de su vida y descubren la música juntos.',
- 138, '+18',
- 'https://imagenes.hobbyconsolas.com/files/image_990_auto/uploads/imagenes/2024/04/02/6903aebb9f764.jpeg',
- 'https://www.youtube.com/embed/spAv-FNhOvA',
- 'https://image.tmdb.org/t/p/original/hS0x0sFM1GjBBq1GVmU6n9d8awr.jpg',
- 'Cartelera', 'Activo'),
-
-(13, 'Twisters',
- 'Una ex cazadora de tornados regresa al campo para probar una técnica revolucionaria para detener los tornados en el corazón de la Tornado Alley.',
- 122, '+7',
- 'https://www.movieposters.com/cdn/shop/files/twisters_ver2.jpg?v=1762976527&width=1680',
- 'https://www.youtube.com/embed/wdok0rZdmx4',
- 'https://image.tmdb.org/t/p/original/pjnD08FlMAIXsfOLKQbovhFyiav.jpg',
- 'Cartelera', 'Activo'),
-
-(14, 'Beetlejuice Beetlejuice',
- 'Después de una tragedia familiar, Lydia Deetz regresa a Winter River con su hija adolescente, donde su pasado sobrenatural la alcanza.',
- 104, '+14',
- 'https://image.tmdb.org/t/p/w500/kKgQzkUCnQmeTPkyIwHly2t6ZFI.jpg',
- 'https://www.youtube.com/embed/CoZqL9N6Rx4',
- 'https://image.tmdb.org/t/p/original/kKgQzkUCnQmeTPkyIwHly2t6ZFI.jpg',
- 'Cartelera', 'Activo'),
-
-(15, 'Terrifier 3',
- 'Art el Payaso regresa para sembrar el caos y el terror durante la temporada navideña, marcando un nuevo nivel de brutalidad.',
- 125, '+18',
- 'https://image.tmdb.org/t/p/w500/l1175hgL5DoXnqeZQCcU3eZIdhX.jpg',
- 'https://www.youtube.com/embed/Y2u6m2W428g',
- 'https://image.tmdb.org/t/p/original/l1175hgL5DoXnqeZQCcU3eZIdhX.jpg',
- 'Cartelera', 'Activo'),
-
-(16, 'Aquaman y el Reino Perdido',
- 'Arthur Curry recurre a un aliado improbable para proteger Atlantis cuando una antigua fuerza oscura amenaza con destruir el mundo.',
- 124, '+7',
- 'https://image.tmdb.org/t/p/w500/7lTnXOy0iNtBAdRP3TZvaKJ77F6.jpg',
- 'https://www.youtube.com/embed/M8W_y0mmJEc',
- 'https://image.tmdb.org/t/p/original/7lTnXOy0iNtBAdRP3TZvaKJ77F6.jpg',
- 'Cartelera', 'Activo'),
-
-(17, 'The Batman',
- 'En el segundo año de Batman en Gotham, un asesino en serie expone la corrupción de la élite de la ciudad a través de crueles acertijos.',
- 176, '+14',
- 'https://image.tmdb.org/t/p/w500/74xTEgt7R36Fpooo50r9T25onhq.jpg',
- 'https://www.youtube.com/embed/mqqft2x_Aa4',
- 'https://image.tmdb.org/t/p/original/74xTEgt7R36Fpooo50r9T25onhq.jpg',
- 'Cartelera', 'Activo'),
-
-(18, 'Avatar: El Camino del Agua',
- 'Jake Sully y Neytiri forman una familia en Pandora. Cuando una vieja amenaza regresa, deben dejar su hogar y explorar las regiones del océano.',
- 192, '+7',
- 'https://image.tmdb.org/t/p/w500/t6HIqrRAclMCA60NsSmeqe9RmNV.jpg',
- 'https://www.youtube.com/embed/a8Gx8wiNbs8',
- 'https://image.tmdb.org/t/p/original/t6HIqrRAclMCA60NsSmeqe9RmNV.jpg',
- 'Cartelera', 'Activo'),
-
-(19, 'Spider-Man: Cruzando el Multiverso',
- 'Miles Morales regresa para una aventura épica que lo llevará por el Multiverso, donde se reunirá con Gwen Stacy y un nuevo equipo de Spider-People.',
- 140, '+7',
- 'https://image.tmdb.org/t/p/w500/8Vt6mWEReuy4Of61Lnj5Xj704m8.jpg',
- 'https://www.youtube.com/embed/cqGjhVJWtEg',
- 'https://image.tmdb.org/t/p/original/8Vt6mWEReuy4Of61Lnj5Xj704m8.jpg',
- 'Cartelera', 'Activo'),
-
-(20, 'John Wick 4',
- 'John Wick descubre un camino para derrotar a la Alta Mesa. Pero antes de ganar su libertad, debe enfrentarse a un nuevo enemigo con alianzas poderosas.',
- 169, '+18',
- 'https://image.tmdb.org/t/p/w500/vZloFAK7NmvMGKE7VkF5UHaz0I.jpg',
- 'https://www.youtube.com/embed/qEVUtrk8_B4',
- 'https://image.tmdb.org/t/p/original/vZloFAK7NmvMGKE7VkF5UHaz0I.jpg',
- 'Cartelera', 'Activo');
-
--- ============================================================
--- 5. RELACIÓN PELÍCULA–GÉNERO
--- ============================================================
-INSERT INTO pelicula_genero (id_pelicula, id_genero) VALUES
-(1, 8),(1, 2),(1, 6),
-(2, 1),(2, 4),(2,16),
-(3, 3),(3, 4),(3, 6),
-(4, 7),(4, 8),(4, 9),
-(5, 6),(5, 9),(5,14),
-(6, 3),(6, 2),(6, 4),
-(7, 1),(7, 6),(7, 2),
-(8, 6),(8,13),(8,11),
-(9, 3),(9, 2),(9,11),
-(10,1),(10,8),(10,9),
-(11,3),(11,2),(11,11),
-(12,5),(12,6),(12,13),
-(13,1),(13,2),(13,9),
-(14,4),(14,7),(14,11),
-(15,7),(15,9),
-(16,1),(16,2),(16,16),
-(17,1),(17,5),(17,12),
-(18,8),(18,2),(18,6),
-(19,1),(19,2),(19,3),
-(20,1),(20,5),(20,9);
-
--- ============================================================
--- 6. ACTORES
--- ============================================================
-INSERT INTO actor (id_actor, nombre) VALUES
-(1,  'Timothée Chalamet'),
-(2,  'Zendaya'),
-(3,  'Rebecca Ferguson'),
-(4,  'Ryan Reynolds'),
-(5,  'Hugh Jackman'),
-(6,  'Emma Stone'),
-(7,  'Amy Poehler'),
-(8,  'Maya Hawke'),
-(9,  'Cailee Spaeny'),
-(10, 'David Jonsson'),
-(11, 'Cillian Murphy'),
-(12, 'Emily Blunt'),
-(13, 'Matt Damon'),
-(14, 'Jack Black'),
-(15, 'Bryan Cranston'),
-(16, 'Paul Mescal'),
-(17, 'Pedro Pascal'),
-(18, 'Cynthia Erivo'),
-(19, 'Ariana Grande'),
-(20, 'Auliʻi Cravalho'),
-(21, 'Tom Hardy'),
-(22, 'Michelle Williams'),
-(23, 'Daisy Ridley'),
-(24, 'Joaquin Phoenix'),
-(25, 'Lady Gaga'),
-(26, 'Daisy Edgar-Jones'),
-(27, 'Glen Powell'),
-(28, 'Michael Keaton'),
-(29, 'Winona Ryder'),
-(30, 'Robert Pattinson');
-
--- ============================================================
--- 7. RELACIÓN PELÍCULA–ACTOR
--- ============================================================
-INSERT INTO pelicula_actor (id_pelicula, id_actor, personaje) VALUES
-(1,  1,  'Paul Atreides'),
-(1,  2,  'Chani'),
-(1,  3,  'Lady Jessica'),
-(2,  4,  'Deadpool / Wade Wilson'),
-(2,  5,  'Wolverine / Logan'),
-(3,  6,  'Alegría'),
-(3,  7,  'Miedo'),
-(3,  8,  'Ansiedad'),
-(4,  9,  'Rain'),
-(4,  10, 'Andy'),
-(5,  11, 'J. Robert Oppenheimer'),
-(5,  12, 'Katherine Oppenheimer'),
-(5,  13, 'Matt'),
-(6,  14, 'Po'),
-(6,  15, 'Mr. Ping'),
-(7,  16, 'Lucio'),
-(7,  17, 'Marcus Acacius'),
-(8,  18, 'Elphaba'),
-(8,  19, 'Glinda'),
-(9,  20, 'Moana'),
-(10, 21, 'Eddie Brock / Venom'),
-(10, 22, 'Anne Weying'),
-(12, 24, 'Arthur Fleck / Joker'),
-(12, 25, 'Lee Quinzel / Harley Quinn'),
-(13, 26, 'Kate Cooper'),
-(13, 27, 'Tyler Owens'),
-(14, 28, 'Betelgeuse'),
-(14, 29, 'Lydia Deetz'),
-(17, 30, 'Bruce Wayne / Batman'),
-(20, 1,  'John Wick');
-
--- ============================================================
--- 8. BANNERS HOME
--- ============================================================
-INSERT INTO banner_home (id_pelicula, imagen_url, orden, is_activo) VALUES
-(1,  'https://image.tmdb.org/t/p/original/xOMo8BRK7PfcJv9JCnx7s5hj0PX.jpg', 1, TRUE),
-(2,  'https://image.tmdb.org/t/p/original/30YacPAcxpNemhhwX667IABLIAk.jpg', 2, TRUE),
-(7,  'https://image.tmdb.org/t/p/original/tkFE9oi7iBMBSWLYHoQMfWyFi1Q.jpg', 3, TRUE),
-(8,  'https://image.tmdb.org/t/p/original/rBOOfRfZsS7mAEFKKzMQQMFNUmQ.jpg', 4, TRUE),
-(19, 'https://image.tmdb.org/t/p/original/4HodYYKEIsGOdinkGi2Ucz6X9i0.jpg', 5, TRUE),
-(5,  'https://image.tmdb.org/t/p/original/rLb2cwF3Pazuxaj0sRXQ037tGI1.jpg', 6, FALSE);
-
--- ============================================================
--- 9. CINES
--- ============================================================
-INSERT INTO cine (id_cine, nombre, direccion, ciudad, estado) VALUES
-(1, 'Filmate Miraflores', 'Av. Larco 1036, Miraflores',           'Lima', TRUE),
-(2, 'Filmate San Isidro', 'Av. Conquistadores 511, San Isidro',   'Lima', TRUE),
-(3, 'Filmate La Molina',  'Av. La Molina 1300, La Molina',        'Lima', TRUE),
-(4, 'Filmate Surco',      'Av. Primavera 2390, Santiago de Surco','Lima', TRUE);
-
--- ============================================================
--- 10. SALAS
--- ============================================================
-INSERT INTO sala (id_sala, id_cine, nombre, formato_sala, capacidad_total) VALUES
-(1,  1, 'Sala 1 - IMAX', 'IMAX', 200),
-(2,  1, 'Sala 2 - 4DX',  '4DX',  100),
-(3,  1, 'Sala 3 - 2D',   '2D',   150),
-(4,  2, 'Sala 1 - IMAX', 'IMAX', 200),
-(5,  2, 'Sala 2 - 3D',   '3D',   120),
-(6,  2, 'Sala 3 - 2D',   '2D',   150),
-(7,  3, 'Sala 1 - 3D',   '3D',   130),
-(8,  3, 'Sala 2 - 2D',   '2D',   140),
-(9,  3, 'Sala 3 - 4DX',  '4DX',   90),
-(10, 4, 'Sala 1 - IMAX', 'IMAX', 210),
-(11, 4, 'Sala 2 - 3D',   '3D',   110),
-(12, 4, 'Sala 3 - 2D',   '2D',   160);
-
--- ============================================================
--- 11. ASIENTOS
---     Sala 1 (IMAX Miraflores): filas A–J, 10 asientos c/u = 100
---     Sala 2 (4DX Miraflores): filas A–E, 8 asientos c/u  =  40
---     Sala 3 (2D Miraflores):  filas A–E, 8 asientos c/u  =  40
--- ============================================================
-INSERT INTO asiento (id_sala, fila, numero, coord_x, coord_y, estado_fisico) VALUES
--- SALA 1
-(1,'A',1,10,10,'Disponible'),(1,'A',2,60,10,'Disponible'),(1,'A',3,110,10,'Disponible'),(1,'A',4,160,10,'Disponible'),(1,'A',5,210,10,'Disponible'),
-(1,'A',6,260,10,'Disponible'),(1,'A',7,310,10,'Disponible'),(1,'A',8,360,10,'Disponible'),(1,'A',9,410,10,'Disponible'),(1,'A',10,460,10,'Disponible'),
-(1,'B',1,10,60,'Disponible'),(1,'B',2,60,60,'Disponible'),(1,'B',3,110,60,'Disponible'),(1,'B',4,160,60,'Disponible'),(1,'B',5,210,60,'Disponible'),
-(1,'B',6,260,60,'Disponible'),(1,'B',7,310,60,'Disponible'),(1,'B',8,360,60,'Disponible'),(1,'B',9,410,60,'Disponible'),(1,'B',10,460,60,'Disponible'),
-(1,'C',1,10,110,'Disponible'),(1,'C',2,60,110,'Disponible'),(1,'C',3,110,110,'Disponible'),(1,'C',4,160,110,'Disponible'),(1,'C',5,210,110,'Disponible'),
-(1,'C',6,260,110,'Disponible'),(1,'C',7,310,110,'Disponible'),(1,'C',8,360,110,'Disponible'),(1,'C',9,410,110,'Disponible'),(1,'C',10,460,110,'Disponible'),
-(1,'D',1,10,160,'Disponible'),(1,'D',2,60,160,'Disponible'),(1,'D',3,110,160,'Disponible'),(1,'D',4,160,160,'Disponible'),(1,'D',5,210,160,'Disponible'),
-(1,'D',6,260,160,'Disponible'),(1,'D',7,310,160,'Disponible'),(1,'D',8,360,160,'Disponible'),(1,'D',9,410,160,'Mantenimiento'),(1,'D',10,460,160,'Disponible'),
-(1,'E',1,10,210,'Disponible'),(1,'E',2,60,210,'Disponible'),(1,'E',3,110,210,'Disponible'),(1,'E',4,160,210,'Disponible'),(1,'E',5,210,210,'Disponible'),
-(1,'E',6,260,210,'Disponible'),(1,'E',7,310,210,'Disponible'),(1,'E',8,360,210,'Disponible'),(1,'E',9,410,210,'Disponible'),(1,'E',10,460,210,'Disponible'),
-(1,'F',1,10,260,'Disponible'),(1,'F',2,60,260,'Disponible'),(1,'F',3,110,260,'Disponible'),(1,'F',4,160,260,'Disponible'),(1,'F',5,210,260,'Disponible'),
-(1,'F',6,260,260,'Disponible'),(1,'F',7,310,260,'Disponible'),(1,'F',8,360,260,'Inhabilitado'),(1,'F',9,410,260,'Disponible'),(1,'F',10,460,260,'Disponible'),
-(1,'G',1,10,310,'Disponible'),(1,'G',2,60,310,'Disponible'),(1,'G',3,110,310,'Disponible'),(1,'G',4,160,310,'Disponible'),(1,'G',5,210,310,'Disponible'),
-(1,'G',6,260,310,'Disponible'),(1,'G',7,310,310,'Disponible'),(1,'G',8,360,310,'Disponible'),(1,'G',9,410,310,'Disponible'),(1,'G',10,460,310,'Disponible'),
-(1,'H',1,10,360,'Disponible'),(1,'H',2,60,360,'Disponible'),(1,'H',3,110,360,'Disponible'),(1,'H',4,160,360,'Disponible'),(1,'H',5,210,360,'Disponible'),
-(1,'H',6,260,360,'Disponible'),(1,'H',7,310,360,'Disponible'),(1,'H',8,360,360,'Disponible'),(1,'H',9,410,360,'Disponible'),(1,'H',10,460,360,'Disponible'),
-(1,'I',1,10,410,'Disponible'),(1,'I',2,60,410,'Disponible'),(1,'I',3,110,410,'Disponible'),(1,'I',4,160,410,'Disponible'),(1,'I',5,210,410,'Disponible'),
-(1,'I',6,260,410,'Disponible'),(1,'I',7,310,410,'Disponible'),(1,'I',8,360,410,'Disponible'),(1,'I',9,410,410,'Disponible'),(1,'I',10,460,410,'Disponible'),
-(1,'J',1,10,460,'Disponible'),(1,'J',2,60,460,'Disponible'),(1,'J',3,110,460,'Disponible'),(1,'J',4,160,460,'Disponible'),(1,'J',5,210,460,'Disponible'),
-(1,'J',6,260,460,'Disponible'),(1,'J',7,310,460,'Disponible'),(1,'J',8,360,460,'Disponible'),(1,'J',9,410,460,'Disponible'),(1,'J',10,460,460,'Disponible'),
--- SALA 2
-(2,'A',1,10,10,'Disponible'),(2,'A',2,60,10,'Disponible'),(2,'A',3,110,10,'Disponible'),(2,'A',4,160,10,'Disponible'),(2,'A',5,210,10,'Disponible'),(2,'A',6,260,10,'Disponible'),(2,'A',7,310,10,'Disponible'),(2,'A',8,360,10,'Disponible'),
-(2,'B',1,10,60,'Disponible'),(2,'B',2,60,60,'Disponible'),(2,'B',3,110,60,'Disponible'),(2,'B',4,160,60,'Disponible'),(2,'B',5,210,60,'Disponible'),(2,'B',6,260,60,'Disponible'),(2,'B',7,310,60,'Disponible'),(2,'B',8,360,60,'Disponible'),
-(2,'C',1,10,110,'Disponible'),(2,'C',2,60,110,'Disponible'),(2,'C',3,110,110,'Disponible'),(2,'C',4,160,110,'Disponible'),(2,'C',5,210,110,'Disponible'),(2,'C',6,260,110,'Disponible'),(2,'C',7,310,110,'Disponible'),(2,'C',8,360,110,'Disponible'),
-(2,'D',1,10,160,'Disponible'),(2,'D',2,60,160,'Disponible'),(2,'D',3,110,160,'Disponible'),(2,'D',4,160,160,'Disponible'),(2,'D',5,210,160,'Disponible'),(2,'D',6,260,160,'Disponible'),(2,'D',7,310,160,'Disponible'),(2,'D',8,360,160,'Disponible'),
-(2,'E',1,10,210,'Disponible'),(2,'E',2,60,210,'Disponible'),(2,'E',3,110,210,'Disponible'),(2,'E',4,160,210,'Disponible'),(2,'E',5,210,210,'Disponible'),(2,'E',6,260,210,'Disponible'),(2,'E',7,310,210,'Disponible'),(2,'E',8,360,210,'Disponible'),
--- SALA 3
-(3,'A',1,10,10,'Disponible'),(3,'A',2,60,10,'Disponible'),(3,'A',3,110,10,'Disponible'),(3,'A',4,160,10,'Disponible'),(3,'A',5,210,10,'Disponible'),(3,'A',6,260,10,'Disponible'),(3,'A',7,310,10,'Disponible'),(3,'A',8,360,10,'Disponible'),
-(3,'B',1,10,60,'Disponible'),(3,'B',2,60,60,'Disponible'),(3,'B',3,110,60,'Disponible'),(3,'B',4,160,60,'Disponible'),(3,'B',5,210,60,'Disponible'),(3,'B',6,260,60,'Disponible'),(3,'B',7,310,60,'Disponible'),(3,'B',8,360,60,'Disponible'),
-(3,'C',1,10,110,'Disponible'),(3,'C',2,60,110,'Disponible'),(3,'C',3,110,110,'Disponible'),(3,'C',4,160,110,'Disponible'),(3,'C',5,210,110,'Disponible'),(3,'C',6,260,110,'Disponible'),(3,'C',7,310,110,'Disponible'),(3,'C',8,360,110,'Disponible'),
-(3,'D',1,10,160,'Disponible'),(3,'D',2,60,160,'Disponible'),(3,'D',3,110,160,'Disponible'),(3,'D',4,160,160,'Disponible'),(3,'D',5,210,160,'Disponible'),(3,'D',6,260,160,'Disponible'),(3,'D',7,310,160,'Disponible'),(3,'D',8,360,160,'Disponible'),
-(3,'E',1,10,210,'Disponible'),(3,'E',2,60,210,'Disponible'),(3,'E',3,110,210,'Disponible'),(3,'E',4,160,210,'Disponible'),(3,'E',5,210,210,'Disponible'),(3,'E',6,260,210,'Disponible'),(3,'E',7,310,210,'Disponible'),(3,'E',8,360,210,'Disponible');
-
--- ============================================================
--- 12. TARIFAS
--- ============================================================
-INSERT INTO tarifa (id_tarifa, nombre, precio, dia_aplica) VALUES
-(1,  'General',         25.00, 'Todos'),
-(2,  'Estudiante',      18.00, 'Todos'),
-(3,  'Adulto Mayor',    15.00, 'Todos'),
-(4,  'Niño (< 12)',     12.00, 'Todos'),
-(5,  'Matinée',         20.00, 'Todos'),
-(6,  'Miercoles Ciné',  15.00, 'Miercoles'),
-(7,  'IMAX Premium',    45.00, 'Todos'),
-(8,  '4DX Premium',     55.00, 'Todos'),
-(9,  'Fin de Semana',   30.00, 'Sabado'),
-(10, 'Fin de Semana',   30.00, 'Domingo');
-
--- ============================================================
--- 13. PROMOCIONES
--- ============================================================
-INSERT INTO promocion (id_promocion, codigo_cupon, porcentaje_descuento, monto_descuento, fecha_inicio, fecha_fin, limite_usos) VALUES
-(1,  'BIENVENIDO10', 10.00, NULL,  '2026-01-01 00:00:00', '2026-12-31 23:59:59', 500),
-(2,  'ESTUDIANTE15', 15.00, NULL,  '2026-01-01 00:00:00', '2026-12-31 23:59:59', 1000),
-(3,  'VERANO20',     20.00, NULL,  '2026-06-01 00:00:00', '2026-08-31 23:59:59', 300),
-(4,  'CUMPLE50',     50.00, NULL,  '2026-01-01 00:00:00', '2026-12-31 23:59:59', 100),
-(5,  'PRIMERAVEZ',   NULL,  5.00,  '2026-01-01 00:00:00', '2026-12-31 23:59:59', 200),
-(6,  'FAMILIA4X3',   25.00, NULL,  '2026-04-01 00:00:00', '2026-06-30 23:59:59', 150),
-(7,  'IMAX2024',     10.00, NULL,  '2026-01-01 00:00:00', '2026-12-31 23:59:59', 400),
-(8,  'NAVIDAD25',    25.00, NULL,  '2026-12-01 00:00:00', '2026-12-31 23:59:59', 250),
-(9,  'FINDE15',      15.00, NULL,  '2026-01-01 00:00:00', '2026-12-31 23:59:59', 600),
-(10, 'LUNES10',      10.00, NULL,  '2026-01-01 00:00:00', '2026-12-31 23:59:59', 400);
-
--- ============================================================
--- 14. FUNCIONES (30 funciones)
--- ============================================================
-INSERT INTO funcion (id_funcion, id_pelicula, id_sala, fecha_hora_inicio, fecha_hora_fin, idioma, formato) VALUES
-(1,  1,  1, '2026-11-01 14:00:00','2026-11-01 16:46:00','Subtitulada','IMAX'),
-(2,  1,  2, '2026-11-01 18:00:00','2026-11-01 20:46:00','Español',    '4DX'),
-(3,  2,  1, '2026-11-02 13:00:00','2026-11-02 15:08:00','Subtitulada','IMAX'),
-(4,  2,  3, '2026-11-02 17:30:00','2026-11-02 19:38:00','Español',    '2D'),
-(5,  3,  7, '2026-11-03 10:00:00','2026-11-03 11:40:00','Español',    '3D'),
-(6,  3,  8, '2026-11-03 14:00:00','2026-11-03 15:40:00','Español',    '2D'),
-(7,  4,  4, '2026-11-04 15:00:00','2026-11-04 16:59:00','Subtitulada','IMAX'),
-(8,  4,  5, '2026-11-04 20:00:00','2026-11-04 21:59:00','Español',    '3D'),
-(9,  5,  10,'2026-11-05 16:00:00','2026-11-05 19:00:00','Subtitulada','IMAX'),
-(10, 5,  11,'2026-11-05 20:00:00','2026-11-05 23:00:00','Español',    '3D'),
-(11, 6,  8, '2026-11-06 11:00:00','2026-11-06 12:34:00','Español',    '2D'),
-(12, 6,  9, '2026-11-06 15:00:00','2026-11-06 16:34:00','Español',    '4DX'),
-(13, 7,  1, '2026-11-07 17:00:00','2026-11-07 19:28:00','Subtitulada','IMAX'),
-(14, 7,  10,'2026-11-07 20:00:00','2026-11-07 22:28:00','Español',    'IMAX'),
-(15, 8,  4, '2026-11-08 16:30:00','2026-11-08 19:10:00','Subtitulada','IMAX'),
-(16, 8,  6, '2026-11-08 19:00:00','2026-11-08 21:40:00','Español',    '2D'),
-(17, 10, 3, '2026-11-09 14:00:00','2026-11-09 15:49:00','Español',    '2D'),
-(18, 10, 5, '2026-11-09 18:00:00','2026-11-09 19:49:00','Subtitulada','3D'),
-(19, 12, 2, '2026-11-10 19:00:00','2026-11-10 21:18:00','Subtitulada','4DX'),
-(20, 12, 11,'2026-11-10 15:00:00','2026-11-10 17:18:00','Español',    '3D'),
-(21, 13, 7, '2026-11-11 13:00:00','2026-11-11 15:02:00','Español',    '3D'),
-(22, 13, 12,'2026-11-11 17:00:00','2026-11-11 19:02:00','Subtitulada','2D'),
-(23, 14, 8, '2026-11-12 16:00:00','2026-11-12 17:44:00','Español',    '2D'),
-(24, 15, 3, '2026-11-13 21:00:00','2026-11-13 23:05:00','Subtitulada','2D'),
-(25, 17, 1, '2026-11-14 15:00:00','2026-11-14 17:56:00','Subtitulada','IMAX'),
-(26, 18, 10,'2026-11-15 14:00:00','2026-11-15 17:12:00','Subtitulada','IMAX'),
-(27, 18, 4, '2026-11-15 18:00:00','2026-11-15 21:12:00','Español',    'IMAX'),
-(28, 19, 7, '2026-11-16 15:00:00','2026-11-16 17:20:00','Español',    '3D'),
-(29, 20, 1, '2026-11-17 19:00:00','2026-11-17 21:49:00','Subtitulada','IMAX'),
-(30, 20, 2, '2026-11-17 14:00:00','2026-11-17 16:49:00','Español',    '4DX');
-
--- ============================================================
--- 15. FUNCION_ASIENTO
--- ============================================================
-INSERT INTO funcion_asiento (id_funcion, id_asiento, estado)
-SELECT 1,  id_asiento, 'Disponible' FROM asiento WHERE id_sala = 1
-UNION ALL
-SELECT 2,  id_asiento, 'Disponible' FROM asiento WHERE id_sala = 2
-UNION ALL
-SELECT 3,  id_asiento, 'Disponible' FROM asiento WHERE id_sala = 1
-UNION ALL
-SELECT 5,  id_asiento, 'Disponible' FROM asiento WHERE id_sala = 7
-UNION ALL
-SELECT 11, id_asiento, 'Disponible' FROM asiento WHERE id_sala = 8;
-
--- Marcar asientos vendidos/reservados en función 1 (usamos IDs reales de sala 1)
-UPDATE funcion_asiento fa
-JOIN asiento a ON fa.id_asiento = a.id_asiento
-SET fa.estado = 'Vendido'
-WHERE fa.id_funcion = 1 AND a.id_sala = 1 AND a.fila IN ('A','B') AND a.numero IN (1,2,3,4,5,6);
-
-UPDATE funcion_asiento fa
-JOIN asiento a ON fa.id_asiento = a.id_asiento
-SET fa.estado = 'Reservado'
-WHERE fa.id_funcion = 1 AND a.id_sala = 1 AND a.fila IN ('A','B') AND a.numero IN (7,8);
-
--- Marcar asientos vendidos/reservados en función 2 (sala 2)
-UPDATE funcion_asiento fa
-JOIN asiento a ON fa.id_asiento = a.id_asiento
-SET fa.estado = 'Vendido'
-WHERE fa.id_funcion = 2 AND a.id_sala = 2 AND a.fila = 'A' AND a.numero IN (1,2,3,4,5);
-
-UPDATE funcion_asiento fa
-JOIN asiento a ON fa.id_asiento = a.id_asiento
-SET fa.estado = 'Reservado'
-WHERE fa.id_funcion = 2 AND a.id_sala = 2 AND a.fila = 'A' AND a.numero IN (6,7);
-
--- ============================================================
--- 16. RESERVAS (25 reservas)
--- ============================================================
-INSERT INTO reserva (id_reserva, id_usuario, id_funcion, id_promocion, fecha_reserva, fecha_expiracion, monto_subtotal, descuento_aplicado, monto_total, estado_pago, metodo_pago, transaccion_id) VALUES
-(1,  3, 1,  NULL,'2026-11-01 12:00:00','2026-11-01 12:30:00',  50.00,  0.00,  50.00,'Pagado',    'Tarjeta', 'TXN-20241101-001'),
-(2,  4, 1,  1,   '2026-11-01 12:15:00','2026-11-01 12:45:00',  50.00,  5.00,  45.00,'Pagado',    'Tarjeta', 'TXN-20241101-002'),
-(3,  5, 2,  NULL,'2026-11-01 15:00:00','2026-11-01 15:30:00', 110.00,  0.00, 110.00,'Pagado',    'Yape',    'TXN-20241101-003'),
-(4,  6, 3,  3,   '2026-11-02 10:00:00','2026-11-02 10:30:00', 128.00, 25.60, 102.40,'Pagado',    'Tarjeta', 'TXN-20241102-001'),
-(5,  7, 5,  NULL,'2026-11-03 09:00:00','2026-11-03 09:30:00',  24.00,  0.00,  24.00,'Pagado',    'Plin',    'TXN-20241103-001'),
-(6,  8, 6,  2,   '2026-11-03 13:00:00','2026-11-03 13:30:00',  36.00,  5.40,  30.60,'Pagado',    'Efectivo','TXN-20241103-002'),
-(7,  9, 7,  NULL,'2026-11-04 14:00:00','2026-11-04 14:30:00',  45.00,  0.00,  45.00,'Pagado',    'Tarjeta', 'TXN-20241104-001'),
-(8,  10,9,  7,   '2026-11-05 15:00:00','2026-11-05 15:30:00',  90.00,  9.00,  81.00,'Pagado',    'Tarjeta', 'TXN-20241105-001'),
-(9,  11,10, NULL,'2026-11-05 18:00:00','2026-11-05 18:30:00',  50.00,  0.00,  50.00,'Pagado',    'Yape',    'TXN-20241105-002'),
-(10, 13,11, NULL,'2026-11-06 10:30:00','2026-11-06 11:00:00',  25.00,  0.00,  25.00,'Pagado',    'Efectivo','TXN-20241106-001'),
-(11, 14,12, 9,   '2026-11-06 13:30:00','2026-11-06 14:00:00',  55.00,  8.25,  46.75,'Pagado',    'Tarjeta', 'TXN-20241106-002'),
-(12, 15,13, NULL,'2026-11-07 16:00:00','2026-11-07 16:30:00',  90.00,  0.00,  90.00,'Pagado',    'Tarjeta', 'TXN-20241107-001'),
-(13, 16,14, 7,   '2026-11-07 18:00:00','2026-11-07 18:30:00',  45.00,  4.50,  40.50,'Pagado',    'Yape',    'TXN-20241107-002'),
-(14, 17,15, NULL,'2026-11-08 15:00:00','2026-11-08 15:30:00',  45.00,  0.00,  45.00,'Pagado',    'Tarjeta', 'TXN-20241108-001'),
-(15, 18,16, 1,   '2026-11-08 17:00:00','2026-11-08 17:30:00',  50.00,  5.00,  45.00,'Pagado',    'Plin',    'TXN-20241108-002'),
-(16, 19,17, NULL,'2026-11-09 13:00:00','2026-11-09 13:30:00',  25.00,  0.00,  25.00,'Pagado',    'Efectivo','TXN-20241109-001'),
-(17, 20,18, NULL,'2026-11-09 17:00:00','2026-11-09 17:30:00',  25.00,  0.00,  25.00,'Pagado',    'Yape',    'TXN-20241109-002'),
-(18, 21,19, 4,   '2026-11-10 18:00:00','2026-11-10 18:30:00', 110.00, 55.00,  55.00,'Pagado',    'Tarjeta', 'TXN-20241110-001'),
-(19, 22,21, NULL,'2026-11-11 12:00:00','2026-11-11 12:30:00',  25.00,  0.00,  25.00,'Pagado',    'Efectivo','TXN-20241111-001'),
-(20, 23,22, 6,   '2026-11-11 16:00:00','2026-11-11 16:30:00', 100.00, 25.00,  75.00,'Pagado',    'Tarjeta', 'TXN-20241111-002'),
-(21, 24,24, NULL,'2026-11-13 20:00:00','2026-11-13 20:30:00',  25.00,  0.00,  25.00,'Cancelado', 'Yape',    'TXN-20241113-001'),
-(22, 25,25, NULL,'2026-11-14 14:00:00','2026-11-14 14:30:00',  45.00,  0.00,  45.00,'Pagado',    'Tarjeta', 'TXN-20241114-001'),
-(23, 26,26, 8,   '2026-11-15 13:00:00','2026-11-15 13:30:00',  90.00, 22.50,  67.50,'Pagado',    'Tarjeta', 'TXN-20241115-001'),
-(24, 27,28, NULL,'2026-11-16 14:00:00','2026-11-16 14:30:00',  50.00,  0.00,  50.00,'Pendiente', 'Tarjeta', 'TXN-20241116-001'),
-(25, 28,30, 2,   '2026-11-17 13:00:00','2026-11-17 13:30:00', 110.00, 16.50,  93.50,'Pagado',    'Plin',    'TXN-20241117-001');
-
--- ============================================================
--- 17. BOLETOS
---     Solo se insertan boletos para reservas pagadas.
---     Los id_asiento referenciados deben existir en funcion_asiento.
---     Usamos asientos de sala 1 (funcion 1 y 3) y sala 2 (funcion 2).
--- ============================================================
-INSERT INTO boleto (id_boleto, id_reserva, id_funcion, id_asiento, id_tarifa, codigo_qr, precio_pagado, estado_ingreso)
-SELECT
-    1, 1, 1, a.id_asiento, 1,
-    'QR-FLM-20241101-0001', 25.00, 'Usado'
-FROM asiento a WHERE a.id_sala = 1 AND a.fila = 'A' AND a.numero = 1;
-
-INSERT INTO boleto (id_boleto, id_reserva, id_funcion, id_asiento, id_tarifa, codigo_qr, precio_pagado, estado_ingreso)
-SELECT
-    2, 1, 1, a.id_asiento, 1,
-    'QR-FLM-20241101-0002', 25.00, 'Usado'
-FROM asiento a WHERE a.id_sala = 1 AND a.fila = 'A' AND a.numero = 2;
-
-INSERT INTO boleto (id_boleto, id_reserva, id_funcion, id_asiento, id_tarifa, codigo_qr, precio_pagado, estado_ingreso)
-SELECT
-    3, 2, 1, a.id_asiento, 1,
-    'QR-FLM-20241101-0003', 22.50, 'Usado'
-FROM asiento a WHERE a.id_sala = 1 AND a.fila = 'A' AND a.numero = 3;
-
-INSERT INTO boleto (id_boleto, id_reserva, id_funcion, id_asiento, id_tarifa, codigo_qr, precio_pagado, estado_ingreso)
-SELECT
-    4, 2, 1, a.id_asiento, 1,
-    'QR-FLM-20241101-0004', 22.50, 'Usado'
-FROM asiento a WHERE a.id_sala = 1 AND a.fila = 'A' AND a.numero = 4;
-
-INSERT INTO boleto (id_boleto, id_reserva, id_funcion, id_asiento, id_tarifa, codigo_qr, precio_pagado, estado_ingreso)
-SELECT
-    5, 3, 2, a.id_asiento, 8,
-    'QR-FLM-20241101-0005', 55.00, 'Vigente'
-FROM asiento a WHERE a.id_sala = 2 AND a.fila = 'A' AND a.numero = 1;
-
-INSERT INTO boleto (id_boleto, id_reserva, id_funcion, id_asiento, id_tarifa, codigo_qr, precio_pagado, estado_ingreso)
-SELECT
-    6, 3, 2, a.id_asiento, 8,
-    'QR-FLM-20241101-0006', 55.00, 'Vigente'
-FROM asiento a WHERE a.id_sala = 2 AND a.fila = 'A' AND a.numero = 2;
-
-INSERT INTO boleto (id_boleto, id_reserva, id_funcion, id_asiento, id_tarifa, codigo_qr, precio_pagado, estado_ingreso)
-SELECT
-    7, 4, 3, a.id_asiento, 1,
-    'QR-FLM-20241102-0001', 25.60, 'Usado'
-FROM asiento a WHERE a.id_sala = 1 AND a.fila = 'A' AND a.numero = 5;
-
-INSERT INTO boleto (id_boleto, id_reserva, id_funcion, id_asiento, id_tarifa, codigo_qr, precio_pagado, estado_ingreso)
-SELECT
-    8, 4, 3, a.id_asiento, 1,
-    'QR-FLM-20241102-0002', 25.60, 'Usado'
-FROM asiento a WHERE a.id_sala = 1 AND a.fila = 'A' AND a.numero = 6;
-
-INSERT INTO boleto (id_boleto, id_reserva, id_funcion, id_asiento, id_tarifa, codigo_qr, precio_pagado, estado_ingreso)
-SELECT
-    9, 4, 3, a.id_asiento, 1,
-    'QR-FLM-20241102-0003', 25.60, 'Usado'
-FROM asiento a WHERE a.id_sala = 1 AND a.fila = 'B' AND a.numero = 1;
-
-INSERT INTO boleto (id_boleto, id_reserva, id_funcion, id_asiento, id_tarifa, codigo_qr, precio_pagado, estado_ingreso)
-SELECT
-    10, 4, 3, a.id_asiento, 1,
-    'QR-FLM-20241102-0004', 25.60, 'Usado'
-FROM asiento a WHERE a.id_sala = 1 AND a.fila = 'B' AND a.numero = 2;
-
--- ============================================================
--- 18. CATEGORÍAS DE SNACK
--- ============================================================
-INSERT INTO categoria_snack (id_categoria, nombre, orden_visual, estado) VALUES
-(1, 'Bebidas',         1, TRUE),
-(2, 'Combos',          2, TRUE),
-(3, 'Palomitas',       3, TRUE),
-(4, 'Dulces y Snacks', 4, TRUE),
-(5, 'Comida Rapida',   5, TRUE),
-(6, 'Sin Azucar',      6, TRUE);
-
--- ============================================================
--- 19. PRODUCTOS SNACK (24 productos)
--- ============================================================
-INSERT INTO producto_snack (id_producto, id_categoria, nombre, descripcion, precio_actual, url_imagen, is_activo) VALUES
-(1,  3, 'Palomitas Pequeñas',  'Palomitas de maíz mantequilla 60gr',               8.00, 'https://images.unsplash.com/photo-1585647347483-22b66260dfff?w=300', TRUE),
-(2,  3, 'Palomitas Medianas',  'Palomitas de maíz mantequilla 120gr',             12.00, 'https://images.unsplash.com/photo-1585647347483-22b66260dfff?w=300', TRUE),
-(3,  3, 'Palomitas Grandes',   'Palomitas de maíz mantequilla 200gr',             16.00, 'https://images.unsplash.com/photo-1585647347483-22b66260dfff?w=300', TRUE),
-(4,  3, 'Palomitas Caramelo',  'Palomitas bañadas en caramelo 150gr',             14.00, 'https://images.unsplash.com/photo-1585647347483-22b66260dfff?w=300', TRUE),
-(5,  1, 'Gaseosa Pequeña',     'Gaseosa 300ml (Coca-Cola, Inca Kola, Sprite)',     7.00, 'https://images.unsplash.com/photo-1554866585-cd94860890b7?w=300', TRUE),
-(6,  1, 'Gaseosa Mediana',     'Gaseosa 500ml',                                    9.00, 'https://images.unsplash.com/photo-1554866585-cd94860890b7?w=300', TRUE),
-(7,  1, 'Gaseosa Grande',      'Gaseosa 700ml',                                   11.00, 'https://images.unsplash.com/photo-1554866585-cd94860890b7?w=300', TRUE),
-(8,  1, 'Agua Mineral',        'Agua mineral 600ml',                               4.00, 'https://images.unsplash.com/photo-1548839140-29a749e1cf4d?w=300', TRUE),
-(9,  1, 'Jugo de Naranja',     'Jugo natural de naranja 400ml',                    9.00, 'https://images.unsplash.com/photo-1621506289937-a8e4df240d0b?w=300', TRUE),
-(10, 1, 'Café Americano',      'Café americano caliente 12oz',                     8.00, 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=300', TRUE),
-(11, 2, 'Combo Dúo',           'Palomitas medianas + 2 gaseosas medianas',        28.00, 'https://images.unsplash.com/photo-1585647347483-22b66260dfff?w=300', TRUE),
-(12, 2, 'Combo Familiar',      'Palomitas grandes + 4 gaseosas medianas',         48.00, 'https://images.unsplash.com/photo-1585647347483-22b66260dfff?w=300', TRUE),
-(13, 2, 'Combo Clásico',       'Palomitas pequeñas + 1 gaseosa mediana',          17.00, 'https://images.unsplash.com/photo-1585647347483-22b66260dfff?w=300', TRUE),
-(14, 2, 'Combo Premium IMAX',  'Palomitas grandes + 2 gaseosas grandes + dulce',  45.00, 'https://images.unsplash.com/photo-1585647347483-22b66260dfff?w=300', TRUE),
-(15, 4, 'Nachos con Queso',    'Nachos crujientes con salsa de queso 150gr',      12.00, 'https://images.unsplash.com/photo-1513456852971-30c0b8199d4d?w=300', TRUE),
-(16, 4, 'M&Ms',                'M&Ms chocolate 100gr',                             7.00, 'https://images.unsplash.com/photo-1548907040-4baa42d10919?w=300', TRUE),
-(17, 4, 'Chocolates Surtidos', 'Caja de chocolates surtidos 200gr',               15.00, 'https://images.unsplash.com/photo-1548907040-4baa42d10919?w=300', TRUE),
-(18, 4, 'Gomitas Haribo',      'Gomitas de fruta Haribo 100gr',                    6.00, 'https://images.unsplash.com/photo-1602145862039-a8dcda1f4ee9?w=300', TRUE),
-(19, 5, 'Hot Dog Clásico',     'Hot dog con pan, mostaza y ketchup',              12.00, 'https://images.unsplash.com/photo-1583835746434-cf1534674b41?w=300', TRUE),
-(20, 5, 'Pizza Personal',      'Pizza personal de pepperoni (2 porciones)',        18.00, 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=300', TRUE),
-(21, 5, 'Nuggets de Pollo',    '6 nuggets de pollo con salsa',                    14.00, 'https://images.unsplash.com/photo-1562967914-608f82629710?w=300', TRUE),
-(22, 6, 'Agua con Gas',        'Agua con gas sin azúcar 500ml',                    5.00, 'https://images.unsplash.com/photo-1548839140-29a749e1cf4d?w=300', TRUE),
-(23, 6, 'Palomitas Sin Sal',   'Palomitas sin sal ni mantequilla 120gr',          10.00, 'https://images.unsplash.com/photo-1585647347483-22b66260dfff?w=300', TRUE),
-(24, 6, 'Barrita de Granola',  'Barrita de granola con frutos secos 45gr',         6.00, 'https://images.unsplash.com/photo-1623428187969-5da2dcea5ebf?w=300', TRUE);
-
--- ============================================================
--- 20. RESERVAS SNACK
--- ============================================================
-INSERT INTO reserva_snack (id_reserva, id_producto, cantidad, precio_unitario) VALUES
-(1,  2,  1, 12.00),
-(1,  6,  2,  9.00),
-(2,  11, 1, 28.00),
-(3,  12, 1, 48.00),
-(3,  10, 2,  8.00),
-(4,  13, 4, 17.00),
-(5,  1,  1,  8.00),
-(5,  5,  1,  7.00),
-(6,  3,  1, 16.00),
-(6,  7,  2, 11.00),
-(7,  14, 1, 45.00),
-(8,  12, 1, 48.00),
-(8,  9,  2,  9.00),
-(9,  2,  2, 12.00),
-(9,  6,  2,  9.00),
-(10, 1,  1,  8.00),
-(10, 5,  1,  7.00),
-(11, 11, 2, 28.00),
-(12, 14, 2, 45.00),
-(13, 3,  1, 16.00),
-(13, 7,  2, 11.00),
-(14, 13, 1, 17.00),
-(14, 6,  1,  9.00),
-(15, 11, 1, 28.00),
-(16, 2,  1, 12.00),
-(17, 15, 2, 12.00),
-(18, 12, 1, 48.00),
-(19, 1,  1,  8.00),
-(19, 5,  2,  7.00),
-(20, 11, 3, 28.00),
-(22, 14, 2, 45.00),
-(23, 12, 1, 48.00),
-(25, 3,  2, 16.00),
-(25, 7,  3, 11.00);
-
--- ============================================================
--- 21. RESEÑAS (40 reseñas)
--- ============================================================
-INSERT INTO resena (id_usuario, id_pelicula, calificacion_estrellas, comentario, estado_moderacion, fecha_publicacion) VALUES
-(3,  1,  5.0, 'Absolutamente épica. Denis Villeneuve lo volvió a hacer. Las escenas del desierto son impresionantes.',          'Aprobado','2026-11-02 10:00:00'),
-(4,  1,  4.5, 'Mejor que la primera parte. Zendaya roba cada escena que tiene.',                                                'Aprobado','2026-11-02 14:30:00'),
-(5,  1,  4.0, 'Gran película pero algo larga. La música de Hans Zimmer es brutal.',                                             'Aprobado','2026-11-03 09:00:00'),
-(6,  2,  5.0, 'La mejor película del MCU en años! Ryan Reynolds y Hugh Jackman tienen una química increíble.',                  'Aprobado','2026-11-03 12:00:00'),
-(7,  2,  4.5, 'Muy divertida y llena de fan service de calidad. Me reí todo el tiempo.',                                        'Aprobado','2026-11-03 16:00:00'),
-(8,  2,  3.5, 'Entretenida pero demasiadas referencias al multiverso. Aun así valió la pena.',                                  'Aprobado','2026-11-04 10:00:00'),
-(9,  3,  5.0, 'Ansiedad es un personaje fantástico! Pixar volvió a emocionarme profundamente.',                                 'Aprobado','2026-11-04 14:00:00'),
-(10, 3,  4.5, 'Lloré sin parar. Muy identificable para cualquier persona que haya sido adolescente.',                           'Aprobado','2026-11-05 11:00:00'),
-(11, 3,  4.0, 'Muy buena secuela aunque la primera es superior. Los niños la amaron.',                                          'Aprobado','2026-11-05 15:00:00'),
-(13, 4,  4.5, 'Aterradora y hermosa a la vez. Los efectos especiales son de otro nivel.',                                       'Aprobado','2026-11-05 18:00:00'),
-(14, 4,  4.0, 'Si eres fan del Alien original la vas a amar. Muy buen regreso a las raíces.',                                   'Aprobado','2026-11-06 09:00:00'),
-(15, 5,  5.0, 'Una obra maestra cinematográfica. Cillian Murphy merece el Oscar sin duda.',                                     'Aprobado','2026-11-06 12:00:00'),
-(16, 5,  5.0, 'Nolan en su máximo esplendor. Cada plano es una fotografía perfecta.',                                           'Aprobado','2026-11-06 16:00:00'),
-(17, 5,  4.5, 'Intensa y reflexiva. La escena del juicio es de las mejores que he visto.',                                      'Aprobado','2026-11-07 10:00:00'),
-(18, 6,  4.0, 'Divertida para toda la familia. Po sigue siendo adorable.',                                                      'Aprobado','2026-11-07 14:00:00'),
-(19, 6,  3.5, 'Entretenida pero no al nivel de las primeras dos. Aun así los niños disfrutaron.',                               'Aprobado','2026-11-08 10:00:00'),
-(20, 7,  4.5, 'Paul Mescal es una revelación. El Coliseo se ve espectacular en IMAX.',                                          'Aprobado','2026-11-08 14:00:00'),
-(21, 7,  4.0, 'Digna secuela aunque Crowe era insuperable. La acción es brutal.',                                               'Aprobado','2026-11-08 18:00:00'),
-(22, 8,  5.0, 'Cynthia Erivo y Ariana Grande son perfectas. Lloré de emoción durante toda la película.',                       'Aprobado','2026-11-09 11:00:00'),
-(23, 8,  5.0, 'Asombrosa! Las canciones, el vestuario, la actuación. Todo de primer nivel.',                                    'Aprobado','2026-11-09 15:00:00'),
-(24, 10, 3.5, 'Decepcionante para cerrar la trilogía. Tom Hardy lo da todo pero el guion falla.',                               'Aprobado','2026-11-10 10:00:00'),
-(25, 10, 3.0, 'Esperaba más. La historia se siente apresurada y sin profundidad.',                                              'Aprobado','2026-11-10 14:00:00'),
-(26, 12, 4.0, 'Visualmente impresionante. Lady Gaga como Harley es genial aunque la trama es divisiva.',                       'Aprobado','2026-11-11 10:00:00'),
-(27, 12, 3.0, 'No era lo que esperaba. Muy diferente al Joker original.',                                                       'Aprobado','2026-11-11 15:00:00'),
-(28, 13, 4.0, 'Adrenalina pura. Las escenas de los tornados son increíbles en sala grande.',                                    'Aprobado','2026-11-12 10:00:00'),
-(3,  14, 4.5, 'Tim Burton regresó a sus raíces. Michael Keaton insuperable como Beetlejuice.',                                  'Aprobado','2026-11-12 14:00:00'),
-(4,  15, 4.5, 'No apta para todos pero artísticamente es única. Art el Payaso es icónico.',                                     'Aprobado','2026-11-13 22:00:00'),
-(5,  15, 5.0, 'La mejor película de terror de los últimos años. Brutalmente brillante.',                                        'Aprobado','2026-11-14 10:00:00'),
-(6,  17, 5.0, 'Robert Pattinson redefine a Batman. Oscura, atmosférica y perfecta.',                                            'Aprobado','2026-11-14 14:00:00'),
-(7,  17, 4.5, 'Impresionante. La lluvia de Gotham se siente real. Riddler da miedo de verdad.',                                 'Aprobado','2026-11-15 10:00:00'),
-(8,  18, 4.5, 'Visualmente la película más hermosa que he visto. Pandora te atrapa.',                                           'Aprobado','2026-11-15 14:00:00'),
-(9,  18, 4.0, 'Larga pero vale cada minuto. Cameron es un genio visual sin discusión.',                                         'Aprobado','2026-11-16 10:00:00'),
-(10, 19, 5.0, 'La mejor película animada de la historia! El arte y la historia son perfectos.',                                 'Aprobado','2026-11-16 14:00:00'),
-(11, 19, 5.0, 'Miles Morales es el mejor Spider-Man. La animación rompe todos los esquemas.',                                   'Aprobado','2026-11-17 10:00:00'),
-(13, 19, 4.5, 'Innovadora en todo sentido. Sony Animation lo logró de nuevo.',                                                  'Aprobado','2026-11-17 14:00:00'),
-(14, 20, 4.5, 'John Wick 4 es acción de alta costura. La escena del Arco de Triunfo es histórica.',                            'Aprobado','2026-11-18 10:00:00'),
-(15, 20, 5.0, 'La mejor entrega de la saga. Keanu Reeves en estado puro.',                                                      'Aprobado','2026-11-18 14:00:00'),
-(16, 2,  5.0, 'El cameo sorpresa me hizo llorar de emoción. Marvel sabe cómo hacerlo.',                                         'Aprobado','2026-11-18 18:00:00'),
-(17, 5,  4.0, 'Necesitas verla dos veces para entender todo. Magistral pero exigente.',                                         'Aprobado','2026-11-19 10:00:00'),
-(18, 1,  4.5, 'La historia de amor entre Paul y Chani es lo más bello del año.',                                                'Aprobado','2026-11-19 14:00:00');
-
--- ============================================================
--- 22. FAVORITOS
--- ============================================================
-INSERT INTO favorito (id_usuario, id_pelicula, fecha_agregado) VALUES
-(3,  1,  '2026-11-02 11:00:00'),
-(3,  5,  '2026-11-06 13:00:00'),
-(3,  17, '2026-11-14 15:00:00'),
-(4,  2,  '2026-11-03 13:00:00'),
-(4,  8,  '2026-11-09 12:00:00'),
-(5,  1,  '2026-11-03 10:00:00'),
-(5,  19, '2026-11-17 11:00:00'),
-(6,  2,  '2026-11-03 13:00:00'),
-(6,  3,  '2026-11-04 15:00:00'),
-(7,  3,  '2026-11-04 16:00:00'),
-(7,  6,  '2026-11-07 15:00:00'),
-(8,  4,  '2026-11-05 19:00:00'),
-(8,  18, '2026-11-15 15:00:00'),
-(9,  7,  '2026-11-08 15:00:00'),
-(9,  20, '2026-11-18 11:00:00'),
-(10, 5,  '2026-11-06 13:00:00'),
-(10, 19, '2026-11-16 15:00:00'),
-(11, 8,  '2026-11-09 12:00:00'),
-(11, 9,  '2026-11-09 13:00:00'),
-(13, 4,  '2026-11-05 19:00:00'),
-(14, 5,  '2026-11-06 13:00:00'),
-(15, 5,  '2026-11-06 14:00:00'),
-(16, 7,  '2026-11-08 15:00:00'),
-(17, 8,  '2026-11-09 12:00:00'),
-(18, 8,  '2026-11-09 13:00:00'),
-(19, 13, '2026-11-12 11:00:00'),
-(20, 14, '2026-11-12 15:00:00'),
-(22, 12, '2026-11-11 11:00:00'),
-(23, 17, '2026-11-14 15:00:00'),
-(25, 17, '2026-11-14 16:00:00'),
-(26, 20, '2026-11-18 11:00:00'),
-(27, 20, '2026-11-18 12:00:00'),
-(28, 19, '2026-11-17 11:00:00');
-
--- ============================================================
--- VERIFICACIÓN
--- ============================================================
-SELECT 'usuarios'         AS tabla, COUNT(*) AS total FROM usuario
-UNION ALL SELECT 'peliculas',     COUNT(*) FROM pelicula
-UNION ALL SELECT 'funciones',     COUNT(*) FROM funcion
-UNION ALL SELECT 'reservas',      COUNT(*) FROM reserva
-UNION ALL SELECT 'boletos',       COUNT(*) FROM boleto
-UNION ALL SELECT 'resenas',       COUNT(*) FROM resena
-UNION ALL SELECT 'favoritos',     COUNT(*) FROM favorito
-UNION ALL SELECT 'snacks',        COUNT(*) FROM producto_snack;
-USE filmate_db;
 
 USE filmate_db;
 
--- TABLAS PARA DEVOLUCIONES Y REEMBOLSOS
+INSERT INTO usuarios (id_usuario, nombre, username, correo, contrasena, id_tipo_doc, numero_documento, telefono, url_perfil, estado_usuario) VALUES
+-- --- ADMINISTRADORES (Estilo: Initials basados en su nombre) ---
+(1, 'Carlos Mendoza Ruíz', 'carlos_admin', 'carlos.mendoza@filmate.com', '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 1, '47589612', '981234567', 'https://api.dicebear.com/10.x/initials/svg?seed=Carlos+Mendoza', 'ACTIVO'),
+(2, 'Ana Sofía Torres', 'ana_admin', 'ana.torres@filmate.com', '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 1, '71452369', '993456781', 'https://api.dicebear.com/10.x/initials/svg?seed=Ana+Sofía+Torres', 'ACTIVO'),
+(3, 'Diego Alejandro Ramos', 'diego_admin', 'diego.ramos@filmate.com', '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 1, '40215893', '955123489', 'https://api.dicebear.com/10.x/initials/svg?seed=Diego+Alejandro+Ramos', 'ACTIVO'),
 
-CREATE TABLE motivo_devolucion (
-    id_motivo INT AUTO_INCREMENT PRIMARY KEY,
-    descripcion VARCHAR(150) NOT NULL UNIQUE
-);
+-- --- CLIENTES (Estilo: Bottts de kuki_listo secuenciales del 1 al 10) ---
+(4, 'Juan Carlos Palomino', 'juanc_palo', 'juan.palomino@gmail.com', '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 1, '74859612', '921458763', 'https://api.dicebear.com/7.x/bottts/svg?seed=kuki_listo_1', 'ACTIVO'),
+(5, 'Valeria Belén Espinoza', 'vale_espinoza', 'valeria.es@outlook.com', '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 1, '45123698', '934125789', 'https://api.dicebear.com/7.x/bottts/svg?seed=kuki_listo_2', 'ACTIVO'),
+(6, 'Mateo Sebastián Guerrero', 'mateo_g', 'mguerrero@gmail.com', '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 1, '70152436', '941258963', 'https://api.dicebear.com/7.x/bottts/svg?seed=kuki_listo_3', 'ACTIVO'),
+(7, 'Camila Fernanda Loli', 'cami_loli', 'camila.loli@hotmail.com', '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 1, '48965213', '963258147', 'https://api.dicebear.com/7.x/bottts/svg?seed=kuki_listo_4', 'ACTIVO'),
+(8, 'Renzo Gabriel Villanueva', 'renzo_v', 'renzo.villa@gmail.com', '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 1, '72361458', '974152638', 'https://api.dicebear.com/7.x/bottts/svg?seed=kuki_listo_5', 'ACTIVO'),
+(9, 'María José Barrientos', 'majo_barrientos', 'majo.b@gmail.com', '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 1, '41526374', '985471236', 'https://api.dicebear.com/7.x/bottts/svg?seed=kuki_listo_6', 'ACTIVO'),
+(10, 'Lucas André Benavides', 'lucas_benavides', 'lucas.bena@outlook.com', '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 1, '75961423', '912347856', 'https://api.dicebear.com/7.x/bottts/svg?seed=kuki_listo_7', 'ACTIVO'),
+(11, 'Andrea Carolina Castro', 'andre_castro', 'andrea.castro@gmail.com', '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 1, '46321598', '936582147', 'https://api.dicebear.com/7.x/bottts/svg?seed=kuki_listo_8', 'ACTIVO'),
+(12, 'Gonzalo Martín Farfán', 'gonzalo_f', 'gfarfan@gmail.com', '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 1, '71236985', '998521436', 'https://api.dicebear.com/7.x/bottts/svg?seed=kuki_listo_9', 'ACTIVO'),
+(13, 'Fiorella Beatriz Chávez', 'fio_chavez', 'fiorella.chavez@hotmail.com', '/PeNCKLdvd25DOginwCXdXpBCDBTDUsw2icHmh6cvsDVYjm2NNQyMfp7M8tsvUNN', 1, '43652198', '954123687', 'https://api.dicebear.com/7.x/bottts/svg?seed=kuki_listo_10', 'ACTIVO');
 
-CREATE TABLE solicitud_reembolso (
-    id_solicitud INT AUTO_INCREMENT PRIMARY KEY,
-    id_reserva INT NOT NULL,
-    id_motivo INT NOT NULL,
-    id_administrador INT NULL, -- Admin que aprueba/rechaza
-    fecha_solicitud DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    monto_reembolsado DECIMAL(10,2) NOT NULL,
-    tipo_reembolso ENUM('Reembolso total', 'Reembolso parcial', 'Sin reembolso') NOT NULL,
-    estado_solicitud ENUM('Pendiente', 'Aprobada', 'Rechazada') DEFAULT 'Pendiente',
-    detalle_motivo TEXT NULL, -- Detalle del cliente
-    comentario_resolucion TEXT NULL, -- ❌ Razón del rechazo/resolución del Admin
-    fecha_resolucion DATETIME NULL,
-    FOREIGN KEY (id_reserva) REFERENCES reserva(id_reserva),
-    FOREIGN KEY (id_motivo) REFERENCES motivo_devolucion(id_motivo),
-    FOREIGN KEY (id_administrador) REFERENCES usuario(id_usuario)
-);
 
-CREATE INDEX idx_reembolso_estado ON solicitud_reembolso(estado_solicitud, fecha_solicitud);
+-- 1.5. ASIGNACIÓN DE ROLES A USUARIOS (usuarios_roles)
+INSERT INTO usuarios_roles (id_usuario, id_role) VALUES
+-- Admins (IDs 1 al 3 -> Rol 1)
+(1, 1),
+(2, 1),
+(3, 1),
+-- Clientes (IDs 4 al 13 -> Rol 2)
+(4, 2),
+(5, 2),
+(6, 2),
+(7, 2),
+(8, 2),
+(9, 2),
+(10, 2),
+(11, 2),
+(12, 2),
+(13, 2);
+-- ====================================================================
+-- BLOQUE 2: INSERCIÓN DE INFRAESTRUCTURA FÍSICA (CINES, SALAS Y ASIENTOS)
+-- ====================================================================
+
 USE filmate_db;
 
--- 1. MOTIVOS DE DEVOLUCIÓN
-INSERT INTO motivo_devolucion (id_motivo, descripcion) VALUES
-(1, 'Cancelación de función'),
-(2, 'Error de cobro'),
-(3, 'Inconveniente del cliente'),
-(4, 'Asiento defectuoso'),
-(5, 'Fuera de política');
-
--- 2. RESERVAS REALES 
-
--- TXN-2049 (Andrés Quispe - id_usuario: 3) -> Pendiente
-INSERT INTO reserva (id_reserva, id_usuario, id_funcion, fecha_reserva, fecha_expiracion, monto_subtotal, monto_total, estado_pago, transaccion_id)
-VALUES (2049, 3, 1, '2026-05-08 14:00:00', '2026-05-08 14:30:00', 55.00, 55.00, 'Pendiente', 'TXN-2049');
-
--- TXN-2041 (Lucía Paredes - id_usuario: 4) -> Pendiente
-INSERT INTO reserva (id_reserva, id_usuario, id_funcion, fecha_reserva, fecha_expiracion, monto_subtotal, monto_total, estado_pago, transaccion_id)
-VALUES (2041, 4, 1, '2026-05-07 19:00:00', '2026-05-07 19:30:00', 42.00, 42.00, 'Pendiente', 'TXN-2041');
-
--- TXN-2038 (Miguel Ramos - id_usuario: 5) -> Reembolsado parcial (S/. 32.00)
-INSERT INTO reserva (id_reserva, id_usuario, id_funcion, fecha_reserva, fecha_expiracion, monto_subtotal, monto_total, estado_pago, transaccion_id)
-VALUES (2038, 5, 2, '2026-05-06 11:15:00', '2026-05-06 11:45:00', 32.00, 32.00, 'Reembolsado', 'TXN-2038');
-
--- TXN-2035 (Sofía Gutierrez - id_usuario: 6) -> Reembolsado parcial (S/. 18.00)
-INSERT INTO reserva (id_reserva, id_usuario, id_funcion, fecha_reserva, fecha_expiracion, monto_subtotal, monto_total, estado_pago, transaccion_id)
-VALUES (2035, 6, 2, '2026-05-05 16:20:00', '2026-05-05 16:50:00', 18.00, 18.00, 'Reembolsado', 'TXN-2035');
-
--- TXN-2030 (Diego Llanos - id_usuario: 7) -> Rechazado (S/. 0.00 / Sin reembolso)
-INSERT INTO reserva (id_reserva, id_usuario, id_funcion, fecha_reserva, fecha_expiracion, monto_subtotal, monto_total, estado_pago, transaccion_id)
-VALUES (2030, 7, 3, '2026-05-04 10:00:00', '2026-05-04 10:30:00', 28.00, 28.00, 'Pagado', 'TXN-2030');
-
--- TXN-2028 (Camila Flores - id_usuario: 8) -> Reembolsados (5 devoluciones de S/. 26.00 cada una)
-INSERT INTO reserva (id_reserva, id_usuario, id_funcion, fecha_reserva, fecha_expiracion, monto_subtotal, monto_total, estado_pago, transaccion_id)
-VALUES (2028, 8, 4, '2026-05-03 15:45:00', '2026-05-03 16:15:00', 130.00, 130.00, 'Reembolsado', 'TXN-2028');
+-- 2.1. INSERCIÓN DE CINES (4 Sedes con sus URLs de mapas extraídas)
+INSERT INTO cines (id_cine, nombre_cine, direccion, horarios_apertura, url_mapa_embebido, estado_cine, observaciones) VALUES
+(1, 'Filmate La Molina', 'Av. Javier Prado Este 5400, La Molina', 'Lunes a Domingo: 1:00 PM - 11:00 PM', 'https://www.google.com/maps?q=Av.%20La%20Molina%201300%2C%20La%20Molina&output=embed', 'Activo', 'Sede principal con zona lounge mejorada.'),
+(2, 'Filmate Miraflores', 'Av. Alfredo Benavides 430, Miraflores', 'Lunes a Domingo: 1:00 PM - 11:00 PM', 'https://www.google.com/maps?q=Av.%20Larco%201036%2C%20Miraflores&output=embed', 'Activo', 'Ubicación céntrica cerca al Parque Kennedy.'),
+(3, 'Filmate San Isidro', 'Av. Camino Real 1251, San Isidro', 'Lunes a Domingo: 1:00 PM - 11:00 PM', 'https://www.google.com/maps?q=Av.%20Conquistadores%20511%2C%20San%20Isidro&output=embed', 'Activo', 'Estacionamiento gratuito por la compra de combos de confitería.'),
+(4, 'Filmate Surco', 'Av. Santiago de Surco 3240, Surco', 'Lunes a Domingo: 1:00 PM - 11:00 PM', 'https://www.google.com/maps?q=Av.%20Primavera%202390%2C%20Santiago%20de%20Surco&output=embed', 'Activo', 'Sede con mayor capacidad de salas IMAX.');
 
 
--- 3. INSERCIÓN DE LAS SOLICITUDES
+-- 2.2. INSERCIÓN DE SALAS (Entre 4 y 6 salas por complejo)
+INSERT INTO salas (id_sala, id_cine, nombre_sala, tipo_sala, tipo_formato, capacidad_asientos, estado_sala) VALUES
+-- --- Salas para La Molina (Sede 1: 5 salas) ---
+(1, 1, 'Sala 1 - Estándar', 'Stand.', '2D', 168, 'Activa'),
+(2, 1, 'Sala 2 - 4DX', '4DX', '3D', 168, 'Activa'),
+(3, 1, 'Sala 3 - VIP', 'VIP', '2D', 168, 'Activa'),
+(4, 1, 'Sala 4 - Estándar', 'Stand.', '3D', 168, 'Activa'),
+(5, 1, 'Sala 5 - Estándar', 'Stand.', '2D', 168, 'Activa'),
 
--- 1. Andrés Quispe (Pendiente en UI)
-INSERT INTO solicitud_reembolso (id_reserva, id_motivo, id_administrador, fecha_solicitud, monto_reembolsado, tipo_reembolso, estado_solicitud, detalle_motivo)
-VALUES (2049, 1, NULL, '2026-05-09 10:30:00', 55.00, 'Reembolso total', 'Pendiente', 'Función suspendida por falla técnica');
+-- --- Salas para Miraflores (Sede 2: 4 salas) ---
+(6, 2, 'Sala 1 - IMAX', 'IMAX', '3D', 168, 'Activa'),
+(7, 2, 'Sala 2 - Estándar', 'Stand.', '2D', 168, 'Activa'),
+(8, 2, 'Sala 3 - VIP', 'VIP', '2D', 168, 'Activa'),
+(9, 2, 'Sala 4 - 4DX', '4DX', '2D', 168, 'Activa'),
 
--- 2. Lucía Paredes (Pendiente en UI)
-INSERT INTO solicitud_reembolso (id_reserva, id_motivo, id_administrador, fecha_solicitud, monto_reembolsado, tipo_reembolso, estado_solicitud, detalle_motivo)
-VALUES (2041, 2, NULL, '2026-05-08 14:15:00', 42.00, 'Reembolso total', 'Pendiente', 'Cobro duplicado por falla en pasarela');
+-- --- Salas para San Isidro (Sede 3: 4 salas) ---
+(10, 3, 'Sala 1 - VIP', 'VIP', '2D', 168, 'Activa'),
+(11, 3, 'Sala 2 - Estándar', 'Stand.', '2D', 168, 'Activa'),
+(12, 3, 'Sala 3 - Estándar', 'Stand.', '2D', 168, 'Activa'),
+(13, 3, 'Sala 4 - Estándar', 'Stand.', '3D', 168, 'Activa'),
 
--- 3. Miguel Ramos (Aprobada - S/. 32.00)
-INSERT INTO solicitud_reembolso (id_reserva, id_motivo, id_administrador, fecha_solicitud, monto_reembolsado, tipo_reembolso, estado_solicitud, detalle_motivo, fecha_resolucion)
-VALUES (2038, 3, 1, '2026-05-07 09:10:00', 32.00, 'Reembolso parcial', 'Aprobada', 'No pudo asistir por emergencia', '2026-05-07 12:00:00');
-
--- 4. Sofía Gutierrez (Aprobada - S/. 18.00)
-INSERT INTO solicitud_reembolso (id_reserva, id_motivo, id_administrador, fecha_solicitud, monto_reembolsado, tipo_reembolso, estado_solicitud, detalle_motivo, fecha_resolucion)
-VALUES (2035, 4, 1, '2026-05-06 18:00:00', 18.00, 'Reembolso parcial', 'Aprobada', 'Asiento roto durante la función', '2026-05-07 08:30:00');
-
--- 5. Diego Llanos (❌ Rechazada - Incluye comentario_resolucion)
-INSERT INTO solicitud_reembolso (id_reserva, id_motivo, id_administrador, fecha_solicitud, monto_reembolsado, tipo_reembolso, estado_solicitud, detalle_motivo, comentario_resolucion, fecha_resolucion)
-VALUES (2030, 5, 1, '2026-05-05 11:22:00', 0.00, 'Sin reembolso', 'Rechazada', 'Solicitó reembolso tras la función', 'Solicitud fuera del plazo permitido de 48 horas.', '2026-05-05 14:00:00');
-
--- 6 al 10. Camila Flores (5 solicitudes aprobadas de S/. 26.00 cada una = S/. 130.00)
-INSERT INTO solicitud_reembolso (id_reserva, id_motivo, id_administrador, fecha_solicitud, monto_reembolsado, tipo_reembolso, estado_solicitud, detalle_motivo, fecha_resolucion) VALUES
-(2028, 1, 1, '2026-05-04 08:00:00', 26.00, 'Reembolso total', 'Aprobada', 'Película retirada de cartelera', '2026-05-04 10:00:00'),
-(2028, 1, 1, '2026-05-04 08:00:00', 26.00, 'Reembolso total', 'Aprobada', 'Película retirada de cartelera', '2026-05-04 10:00:00'),
-(2028, 1, 1, '2026-05-04 08:00:00', 26.00, 'Reembolso total', 'Aprobada', 'Película retirada de cartelera', '2026-05-04 10:00:00'),
-(2028, 1, 1, '2026-05-04 08:00:00', 26.00, 'Reembolso total', 'Aprobada', 'Película retirada de cartelera', '2026-05-04 10:00:00'),
-(2028, 1, 1, '2026-05-04 08:00:00', 26.00, 'Reembolso total', 'Aprobada', 'Película retirada de cartelera', '2026-05-04 10:00:00');
+-- --- Salas para Surco (Sede 4: 6 salas) ---
+(14, 4, 'Sala 1 - IMAX', 'IMAX', '3D', 168, 'Activa'),
+(15, 4, 'Sala 2 - 4DX', '4DX', '3D', 168, 'Activa'),
+(16, 4, 'Sala 3 - Estándar', 'Stand.', '2D', 168, 'Activa'),
+(17, 4, 'Sala 4 - Estándar', 'Stand.', '2D', 168, 'Activa'),
+(18, 4, 'Sala 5 - VIP', 'VIP', '2D', 168, 'Activa'),
+(19, 4, 'Sala 6 - VIP', 'VIP', '3D', 168, 'Activa');
 
 
--- 4. CONTROL EFECTIVO DE CONTADORES DE LAS CARDS 
+-- 2.3. GENERACIÓN AUTOMÁTICA DE ASIENTOS (Procedimiento Almacenado Temporal)
+DELIMITER //
 
--- Agregar 6 pendientes extras para llegar a los 8 de la maqueta (Monto 0 para no alterar nada)
-INSERT INTO solicitud_reembolso (id_reserva, id_motivo, monto_reembolsado, tipo_reembolso, estado_solicitud)
-SELECT 2041, 3, 0.00, 'Reembolso parcial', 'Pendiente' FROM usuario LIMIT 6;
+DROP PROCEDURE IF EXISTS pr_generar_asientos_bloque2 //
 
--- Agregar 15 aprobadas extras con monto 0.00 para llegar a las 22 de la maqueta sin romper la suma
-INSERT INTO solicitud_reembolso (id_reserva, id_motivo, id_administrador, monto_reembolsado, tipo_reembolso, estado_solicitud)
-SELECT 2038, 3, 1, 0.00, 'Reembolso parcial', 'Aprobada' FROM usuario LIMIT 15;
+CREATE PROCEDURE pr_generar_asientos_bloque2()
+BEGIN
+    DECLARE v_id_sala INT;
+    DECLARE fila_idx INT;
+    DECLARE col_idx INT;
+    DECLARE v_letra_fila VARCHAR(5);
+    
+    -- Cursor dinámico que leerá todas las salas registradas arriba
+    DECLARE done INT DEFAULT FALSE;
+    DECLARE cur_salas CURSOR FOR SELECT id_sala FROM salas;
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = TRUE;
 
--- Agregar 3 rechazadas extras con su respectivo motivo de rechazo para cerrar las 34 totales
-INSERT INTO solicitud_reembolso (id_reserva, id_motivo, id_administrador, monto_reembolsado, tipo_reembolso, estado_solicitud, comentario_resolucion)
-SELECT 2030, 5, 1, 0.00, 'Sin reembolso', 'Rechazada', 'No cumple con las políticas institucionales de la empresa.' FROM usuario LIMIT 3;
+    OPEN cur_salas;
 
-CREATE TABLE director (
-    id_director INT AUTO_INCREMENT PRIMARY KEY,
-    nombre VARCHAR(100) NOT NULL UNIQUE
-);
+    read_loop: LOOP
+        FETCH cur_salas INTO v_id_sala;
+        IF done THEN
+            LEAVE read_loop;
+        END IF;
 
-CREATE TABLE pelicula_director (
-    id_pelicula INT NOT NULL,
-    id_director INT NOT NULL,
-    PRIMARY KEY (id_pelicula, id_director),
-    FOREIGN KEY (id_pelicula) REFERENCES pelicula(id_pelicula) ON DELETE CASCADE,
-    FOREIGN KEY (id_director) REFERENCES director(id_director) ON DELETE CASCADE
-);
+        -- Iterar sobre 12 filas (A=1 hasta L=12)
+        SET fila_idx = 1;
+        while_filas: WHILE fila_idx <= 12 DO
+            
+            -- Convertir el índice numérico a letras (A-L)
+            SET v_letra_fila = ELT(fila_idx, 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L');
+            
+            -- Iterar sobre 14 columnas
+            SET col_idx = 1;
+            while_columnas: WHILE col_idx <= 14 DO
+                
+                -- Insertar la butaca física (Todas 'Regular' por defecto, Estado 'Activo')
+                INSERT INTO asientos (id_sala, fila, columna, tipo_asiento, estado_asiento)
+                VALUES (v_id_sala, v_letra_fila, col_idx, 'Regular', 'Activo');
+                
+                SET col_idx = col_idx + 1;
+            END WHILE while_columnas;
+            
+            SET fila_idx = fila_idx + 1;
+        END WHILE while_filas;
+
+    END LOOP read_loop;
+
+    CLOSE cur_salas;
+END //
+
+DELIMITER ;
+
+-- Ejecutar el generador para poblar la tabla `asientos` (Poblará dinámicamente las 19 salas)
+CALL pr_generar_asientos_bloque2();
+
+-- Limpieza: Eliminar el procedimiento para no dejar rastro en el esquema
+DROP PROCEDURE IF EXISTS pr_generar_asientos_bloque2;
+-- ====================================================================
+-- BLOQUE 3: CATÁLOGO DE PELÍCULAS (GÉNEROS Y PELÍCULAS DESDE TMDb)
+-- ====================================================================
+
 USE filmate_db;
 
--- ============================================================
--- DIRECTORES
--- ============================================================
-INSERT INTO director (id_director, nombre) VALUES
-(1,  'Denis Villeneuve'),
-(2,  'Shawn Levy'),
-(3,  'Kelsey Mann'),
-(4,  'Fede Álvarez'),
-(5,  'Christopher Nolan'),
-(6,  'Mike Mitchell'),
-(7,  'Ridley Scott'),
-(8,  'Jon M. Chu'),
-(9,  'David G. Derrick Jr.'),
-(10, 'Kelly Marcel'),
-(11, 'Kenji Kamiyama'),
-(12, 'Todd Phillips'),
-(13, 'Lee Isaac Chung'),
-(14, 'Tim Burton'),
-(15, 'Damien Leone'),
-(16, 'James Wan'),
-(17, 'Matt Reeves'),
-(18, 'James Cameron'),
-(19, 'Joaquim Dos Santos'),
-(20, 'Kemp Powers'),
-(21, 'Justin K. Thompson'),
-(22, 'Chad Stahelski');
+-- Inserción de Géneros Oficiales TMDb
+INSERT INTO generos (id_genero, nombre_genero) VALUES (28, 'Acción') ON DUPLICATE KEY UPDATE nombre_genero='Acción';
+INSERT INTO generos (id_genero, nombre_genero) VALUES (12, 'Aventura') ON DUPLICATE KEY UPDATE nombre_genero='Aventura';
+INSERT INTO generos (id_genero, nombre_genero) VALUES (16, 'Animación') ON DUPLICATE KEY UPDATE nombre_genero='Animación';
+INSERT INTO generos (id_genero, nombre_genero) VALUES (35, 'Comedia') ON DUPLICATE KEY UPDATE nombre_genero='Comedia';
+INSERT INTO generos (id_genero, nombre_genero) VALUES (80, 'Crimen') ON DUPLICATE KEY UPDATE nombre_genero='Crimen';
+INSERT INTO generos (id_genero, nombre_genero) VALUES (99, 'Documental') ON DUPLICATE KEY UPDATE nombre_genero='Documental';
+INSERT INTO generos (id_genero, nombre_genero) VALUES (18, 'Drama') ON DUPLICATE KEY UPDATE nombre_genero='Drama';
+INSERT INTO generos (id_genero, nombre_genero) VALUES (10751, 'Familia') ON DUPLICATE KEY UPDATE nombre_genero='Familia';
+INSERT INTO generos (id_genero, nombre_genero) VALUES (14, 'Fantasía') ON DUPLICATE KEY UPDATE nombre_genero='Fantasía';
+INSERT INTO generos (id_genero, nombre_genero) VALUES (36, 'Historia') ON DUPLICATE KEY UPDATE nombre_genero='Historia';
+INSERT INTO generos (id_genero, nombre_genero) VALUES (27, 'Terror') ON DUPLICATE KEY UPDATE nombre_genero='Terror';
+INSERT INTO generos (id_genero, nombre_genero) VALUES (10402, 'Música') ON DUPLICATE KEY UPDATE nombre_genero='Música';
+INSERT INTO generos (id_genero, nombre_genero) VALUES (9648, 'Misterio') ON DUPLICATE KEY UPDATE nombre_genero='Misterio';
+INSERT INTO generos (id_genero, nombre_genero) VALUES (10749, 'Romance') ON DUPLICATE KEY UPDATE nombre_genero='Romance';
+INSERT INTO generos (id_genero, nombre_genero) VALUES (878, 'Ciencia ficción') ON DUPLICATE KEY UPDATE nombre_genero='Ciencia ficción';
+INSERT INTO generos (id_genero, nombre_genero) VALUES (10770, 'Película de TV') ON DUPLICATE KEY UPDATE nombre_genero='Película de TV';
+INSERT INTO generos (id_genero, nombre_genero) VALUES (53, 'Suspense') ON DUPLICATE KEY UPDATE nombre_genero='Suspense';
+INSERT INTO generos (id_genero, nombre_genero) VALUES (10752, 'Bélica') ON DUPLICATE KEY UPDATE nombre_genero='Bélica';
+INSERT INTO generos (id_genero, nombre_genero) VALUES (37, 'Western') ON DUPLICATE KEY UPDATE nombre_genero='Western';
 
--- ============================================================
--- RELACIÓN PELÍCULA–DIRECTOR
--- ============================================================
-INSERT INTO pelicula_director (id_pelicula, id_director) VALUES
-(1,  1),  -- Dune: Parte Dos -> Denis Villeneuve
-(2,  2),  -- Deadpool & Wolverine -> Shawn Levy
-(3,  3),  -- Inside Out 2 -> Kelsey Mann
-(4,  4),  -- Alien: Romulus -> Fede Álvarez
-(5,  5),  -- Oppenheimer -> Christopher Nolan
-(6,  6),  -- Kung Fu Panda 4 -> Mike Mitchell
-(7,  7),  -- Gladiador II -> Ridley Scott
-(8,  8),  -- Wicked -> Jon M. Chu
-(9,  9),  -- Moana 2 -> David G. Derrick Jr.
-(10, 10), -- Venom: El Último Baile -> Kelly Marcel
-(11, 11), -- El Señor de los Anillos: La Guerra de los Rohirrim -> Kenji Kamiyama
-(12, 12), -- Joker: Folie à Deux -> Todd Phillips
-(13, 13), -- Twisters -> Lee Isaac Chung
-(14, 14), -- Beetlejuice Beetlejuice -> Tim Burton
-(15, 15), -- Terrifier 3 -> Damien Leone
-(16, 16), -- Aquaman y el Reino Perdido -> James Wan
-(17, 17), -- The Batman -> Matt Reeves
-(18, 18), -- Avatar: El Camino del Agua -> James Cameron
--- Spider-Man: Cruzando el Multiverso tiene 3 directores:
-(19, 19), 
-(19, 20), 
-(19, 21), 
-(20, 22); -- John Wick 4 -> Chad Stahelski
+-- Película: Amos del Universo
+INSERT INTO peliculas (id_pelicula, titulo, anio_lanzamiento, duracion_minutos, clasificacion, estado_pelicula, url_poster, url_banner, url_trailer, sinopsis, elenco, director) VALUES (1, 'Amos del Universo', 2026, 141, '+14', 'EN CARTELERA', 'https://image.tmdb.org/t/p/w500/hNLKuennkGtlWvqU6Ko4Z6X8JHg.jpg', 'https://image.tmdb.org/t/p/original/eQySd26OW7UmCuaeBOL7qy6foMn.jpg', 'https://www.youtube.com/embed/K2p_Xz8i2Uo?autoplay=1', 'En las regiones más lejanas del espacio, el reino de Eternia está amenazado por el villano Skeletor y sus traviesos ejércitos de oscuridad. Para salvar el reino de su padre y proteger las vidas de sus seres queridos, el joven príncipe Adam tiene que recuperar una espada mítica y convertirse en el legendario guerrero conocido como "He-Man".', 'Nicholas Galitzine, Jared Leto, Camila Mendes, Idris Elba, Alison Brie', 'Travis Knight');
+-- Géneros de: Amos del Universo
+INSERT INTO peliculas_generos (id_pelicula, id_genero) VALUES (1, 28);
+INSERT INTO peliculas_generos (id_pelicula, id_genero) VALUES (1, 14);
+INSERT INTO peliculas_generos (id_pelicula, id_genero) VALUES (1, 878);
+
+-- Película: Paucartambo
+INSERT INTO peliculas (id_pelicula, titulo, anio_lanzamiento, duracion_minutos, clasificacion, estado_pelicula, url_poster, url_banner, url_trailer, sinopsis, elenco, director) VALUES (2, 'Paucartambo', 2024, 71, 'APT', 'EN CARTELERA', 'https://image.tmdb.org/t/p/w500/cCgDW9L09y7Z9A0pyMaxGWglZPq.jpg', 'https://image.tmdb.org/t/p/original/nXsZSDDMuAIwzYc0yTRaD9xE4sw.jpg', 'https://www.youtube.com/embed/was0bnFEKyI?autoplay=1', '“Paucartambo” es un documental observacional desarrollado en la Fiesta de la Virgen del Carmen de Paucartambo, a través de un bailarin Maqta y la comparsa Qollas, se retratan intensos encuentros que reflejan la profundidad entre la cosmovisión andina y el sincretismo peruano.', 'Fabricio Quillahuaman, Augusto Casafranca', 'William Bustos');
+-- Géneros de: Paucartambo
+INSERT INTO peliculas_generos (id_pelicula, id_genero) VALUES (2, 99);
+
+-- Película: Scary Movie Terrorificamente Incorrecta
+INSERT INTO peliculas (id_pelicula, titulo, anio_lanzamiento, duracion_minutos, clasificacion, estado_pelicula, url_poster, url_banner, url_trailer, sinopsis, elenco, director) VALUES (3, 'Scary Movie Terrorificamente Incorrecta', 2026, 96, '+18', 'EN CARTELERA', 'https://image.tmdb.org/t/p/w500/vUPE82BWRZwq6M5Xc9UNuf8AffK.jpg', 'https://image.tmdb.org/t/p/original/lj6AaDqDUbzm2XJltFNHeAm2uXN.jpg', 'https://www.youtube.com/embed/kLZ7PGp7ZL0?autoplay=1', 'Veintiséis años después de conseguir escapar de un asesino enmascarado sospechosamente familiar, el Core Four están de vuelta en el punto de mira del asesino y ninguna película de terror está a salvo.', 'Marlon Wayans, Shawn Wayans, Anna Faris, Regina Hall, Damon Wayans Jr.', 'Michael Tiddes');
+-- Géneros de: Scary Movie Terrorificamente Incorrecta
+INSERT INTO peliculas_generos (id_pelicula, id_genero) VALUES (3, 35);
+INSERT INTO peliculas_generos (id_pelicula, id_genero) VALUES (3, 27);
+
+-- Película: Amando a Amanda
+INSERT INTO peliculas (id_pelicula, titulo, anio_lanzamiento, duracion_minutos, clasificacion, estado_pelicula, url_poster, url_banner, url_trailer, sinopsis, elenco, director) VALUES (4, 'Amando a Amanda', 2026, 90, '+14', 'ACTIVO', 'https://image.tmdb.org/t/p/w500/ik3lBmw2s8ZazGdHBMaqGDdAaLe.jpg', 'default_banner.png', 'https://www.youtube.com/embed/6FC47ORT0PU?si=WGwFonOWo_iufJz2', 'Fernando está convencido de una cosa: Amanda es el amor de su vida. Lo supo cuando eran niños, lo confirmó al casarse con ella y lo sigue creyendo incluso después de separarse. Amanda es brillante, talentosa y absolutamente impredecible; vive entre impulsos, risas, excesos y una intensidad que vuelve cualquier situation… inolvidable.', 'Gianella Neyra, Giovanni Ciccia, Rodrigo Sánchez-Patiño, Nacho Di Marco, Fiorella Diaz', 'Ani Alva Helfer');
+-- Géneros de: Amando a Amanda
+INSERT INTO peliculas_generos (id_pelicula, id_genero) VALUES (4, 35);
+INSERT INTO peliculas_generos (id_pelicula, id_genero) VALUES (4, 10749);
+
+-- Película: Backrooms
+INSERT INTO peliculas (id_pelicula, titulo, anio_lanzamiento, duracion_minutos, clasificacion, estado_pelicula, url_poster, url_banner, url_trailer, sinopsis, elenco, director) VALUES (5, 'Backrooms', 2026, 110, '+14', 'ACTIVO', 'https://image.tmdb.org/t/p/w500/mIeeEL8WnkmLbNjFIs7uo55VF9Q.jpg', 'default_banner.png', 'https://www.youtube.com/embed/j6xBUJSm_S8?si=3vFf0osNzsQ-g2d5', 'Basado en el fenómeno viral de internet. Un grupo de jóvenes termina atrapado por error en un laberinto interminable de oficinas vacías con paredes amarillas, luces fluorescentes parpadeantes y una presencia siniestra de la que no hay salida.', 'Bradley Gareth, Kane Parsons', 'Kane Parsons');
+-- Géneros de: Backrooms
+INSERT INTO peliculas_generos (id_pelicula, id_genero) VALUES (5, 27);
+
+-- Película: The Mandalorian and Grogu
+INSERT INTO peliculas (id_pelicula, titulo, anio_lanzamiento, duracion_minutos, clasificacion, estado_pelicula, url_poster, url_banner, url_trailer, sinopsis, elenco, director) VALUES (6, 'The Mandalorian and Grogu', 2026, 133, 'APT', 'ACTIVO', 'https://image.tmdb.org/t/p/w500/sWitU9IjgFwf6y1OrI0zUaL3GNa.jpg', 'https://image.tmdb.org/t/p/original/6zg7A9ICOthNR2TSXlT51KvXrsA.jpg', 'https://www.youtube.com/embed/bDmr-8CaeBg?autoplay=1', 'Continuación de la serie "The Mandalorian" en forma de película. El Imperio ha caído y los señores de la guerra imperiales siguen dispersos por toda la galaxia. Mientras la incipiente Nueva República trabaja para proteger todo por lo que luchó la Rebelión, ha reclutado la ayuda del legendario cazarrecompensas mandaloriano Din Djarin y su joven aprendiz Grogu.', 'Pedro Pascal, Jeremy Allen White, Sigourney Weaver, Brendan Wayne, Lateef Crowder', 'Jon Favreau');
+-- Géneros de: The Mandalorian and Grogu
+INSERT INTO peliculas_generos (id_pelicula, id_genero) VALUES (6, 28);
+INSERT INTO peliculas_generos (id_pelicula, id_genero) VALUES (6, 12);
+INSERT INTO peliculas_generos (id_pelicula, id_genero) VALUES (6, 878);
+
+-- Película: Obsesion
+INSERT INTO peliculas (id_pelicula, titulo, anio_lanzamiento, duracion_minutos, clasificacion, estado_pelicula, url_poster, url_banner, url_trailer, sinopsis, elenco, director) VALUES (7, 'Obsesion', 2026, 108, '+14', 'ACTIVO', 'https://image.tmdb.org/t/p/w500/ohi9xvbBUymM4SuIOSlt1xbLRQQ.jpg', 'https://image.tmdb.org/t/p/original/rZfmzpixLKLR3Hg2u0WgC7XLFl8.jpg', 'https://www.youtube.com/embed/5MBu6Xhuj38?autoplay=1', 'El anhelo romántico desesperado de un chico por su amor platónico de toda la vida desencadena un siniestro hechizo: Niki se vuelve irracionalmente obsesiva hasta convertirse en la sombra de Bear. Una fantasía aparentemente inofensiva que se convertirá en una perturbadora pesadilla.', 'Michael Johnston, Inde Navarrette, Cooper Tomlinson, Megan Lawless, Andy Richter', 'Curry Barker');
+-- Géneros de: Obsesion
+INSERT INTO peliculas_generos (id_pelicula, id_genero) VALUES (7, 27);
+
+-- Película: Las Ovejas Detectives
+INSERT INTO peliculas (id_pelicula, titulo, anio_lanzamiento, duracion_minutos, clasificacion, estado_pelicula, url_poster, url_banner, url_trailer, sinopsis, elenco, director) VALUES (8, 'Las Ovejas Detectives', 2026, 110, 'APT', 'ACTIVO', 'https://image.tmdb.org/t/p/w500/kMJ4h39xe1fEzbLSt5FJCtEqb2H.jpg', 'https://image.tmdb.org/t/p/original/t6O6XWelu27BD0OmIDCCufZZT6d.jpg', 'https://www.youtube.com/embed/826SRt1CFbg?autoplay=1', 'Cada noche, un pastor lee en voz alta un asesinato misterioso, fingiendo que sus ovejas pueden entenderlo. Cuando lo encuentran muerto, las ovejas se dan cuenta enseguida de que ha sido un asesinato y creen saber cómo resolverlo.', 'Hugh Jackman, Julia Louis-Dreyfus, Emma Thompson, Nicholas Braun, Nicholas Galitzine', 'Kyle Balda');
+-- Géneros de: Las Ovejas Detectives
+INSERT INTO peliculas_generos (id_pelicula, id_genero) VALUES (8, 35);
+INSERT INTO peliculas_generos (id_pelicula, id_genero) VALUES (8, 10751);
+INSERT INTO peliculas_generos (id_pelicula, id_genero) VALUES (8, 9648);
+
+-- Película: El diablo viste a la Moda 2
+INSERT INTO peliculas (id_pelicula, titulo, anio_lanzamiento, duracion_minutos, clasificacion, estado_pelicula, url_poster, url_banner, url_trailer, sinopsis, elenco, director) VALUES (9, 'El diablo viste a la Moda 2', 2006, 120, '+14', 'ACTIVO', 'https://image.tmdb.org/t/p/w500/gvBvYFS9VVeukBYcdBX2HJZN4DL.jpg', 'https://image.tmdb.org/t/p/original/gkh6Nt8DtY1XT4gQsyFq9XAVJlJ.jpg', 'https://www.youtube.com/embed/bb3NblYZwQU?autoplay=1', 'En el vertiginoso mundo de la moda en Nueva York, la revista ''Runway'' es el Santo Grial. Dirigida con puño de hierro y elegante manicura por Miranda Priestly, trabajar en ella es un temible reto para todo aquel que quiera triunfar en ese mundo. Hacerlo como ayudante de Miranda podría abrirle cualquier puerta a Andy Sachs, recientemente graduada. Pero ella es una chica que destaca por su desaliño dentro del pequeño ejército de guapísimas redactoras de la revista. Andy comprende muy pronto que para triunfar en ese negocio va a necesitar algo más que iniciativa y determinación. Y la prueba definitiva está delante de ella, vestida de Prada de pies a cabeza.  Es una mierda de película!!', 'Meryl Streep, Anne Hathaway, Emily Blunt, Stanley Tucci, Simon Baker', 'David Frankel');
+-- Géneros de: El diablo viste a la Moda 2
+INSERT INTO peliculas_generos (id_pelicula, id_genero) VALUES (9, 18);
+INSERT INTO peliculas_generos (id_pelicula, id_genero) VALUES (9, 35);
+
+-- Película: Michael
+INSERT INTO peliculas (id_pelicula, titulo, anio_lanzamiento, duracion_minutos, clasificacion, estado_pelicula, url_poster, url_banner, url_trailer, sinopsis, elenco, director) VALUES (10, 'Michael', 2026, 127, '+14', 'ACTIVO', 'https://image.tmdb.org/t/p/w500/2uK36ujoDXOfNiJ5Yp3raVprB51.jpg', 'https://image.tmdb.org/t/p/original/xBT0oNq6rsTFv4SxG5uGRIEOrq6.jpg', 'https://www.youtube.com/embed/o1HQSh6zZ8s?autoplay=1', 'El viaje de Michael Jackson más allá de la música, desde el descubrimiento de su extraordinario talento como líder de los Jackson Five hasta convertirse en una visionaria estrella cuya ambición creativa despertó un incansable afán por consagrarse como el mayor icono de la industria del entretenimiento.', 'Jaafar Jackson, Colman Domingo, Nia Long, Juliano Krue Valdi, Miles Teller', 'Antoine Fuqua');
+-- Géneros de: Michael
+INSERT INTO peliculas_generos (id_pelicula, id_genero) VALUES (10, 10402);
+INSERT INTO peliculas_generos (id_pelicula, id_genero) VALUES (10, 18);
+
+-- ====================================================================
+-- BLOQUE 4: OPERACIONES, DULCERÍA Y SIMULACIÓN SOCIAL MASIVA (MÓDULO FINAL)
+-- ====================================================================
+
+USE filmate_db;
+
+-- 4.1. MÓDULO CONFITERÍA: CATEGORÍAS Y CATÁLOGO AMPLIADO
+SET FOREIGN_KEY_CHECKS = 0;
+TRUNCATE TABLE carrito_confiteria;
+TRUNCATE TABLE detalle_boleta_confiteria;
+TRUNCATE TABLE productos_confiteria;
+TRUNCATE TABLE categorias_confiteria;
+SET FOREIGN_KEY_CHECKS = 1;
+
+INSERT INTO categorias_confiteria (id_categoria_confi, nombre_categoria) VALUES
+(1, 'Combos'), (2, 'Canchita'), (3, 'Bebidas'), (4, 'Dulces');
+
+INSERT INTO productos_confiteria (id_producto, id_categoria_confi, nombre_producto, descripcion, precio, url_imagen, stock) VALUES
+-- --- CATEGORÍA 1: COMBOS ---
+(1, 1, 'Combo Personal Filmate', '1 Canchita Grande Salada + 1 Gaseosa Mediana 32oz', 26.00, 'combo_personal.png', 5000),
+(2, 1, 'Combo Pareja de Estreno', '1 Canchita Gigante + 2 Gaseosas Medianas + 1 Chocolate M&M', 45.00, 'combo_pareja.png', 3500),
+(3, 1, 'Combo Familiar Filmate', '2 Canchitas Medianas + 4 Gaseosas Medianas + 1 Hot Dog Gigante', 75.00, 'combo_familiar.png', 2000),
+(4, 1, 'Combo Hot Dog Simple', '1 Hot Dog Clásico + 1 Gaseosa Mediana 32oz', 22.00, 'combo_hotdog.png', 1500),
+(5, 1, 'Combo Kids Animación', '1 Canchita Chica Dulce + 1 Frugos en caja + 1 Juguete de colección', 28.00, 'combo_kids.png', 1800),
+
+-- --- CATEGORÍA 2: CANCHITA (POPCORN) ---
+(6, 2, 'Canchita Popcorn Familiar Salada', 'Balde gigante de canchita salada clásica', 18.00, 'canchita_familiar_sal.png', 9000),
+(7, 2, 'Canchita Popcorn Familiar Dulce', 'Balde gigante de canchita acaramelada crujiente', 20.00, 'canchita_familiar_dul.png', 8500),
+(8, 2, 'Canchita Popcorn Mediana Mix', 'Bolsa mediana mitad dulce y mitad salada', 15.00, 'canchita_mediana_mix.png', 6000),
+(9, 2, 'Canchita Popcorn Porción Chica', 'Bolsa personal de canchita salada', 10.00, 'canchita_chica.png', 4000),
+
+-- --- CATEGORÍA 3: BEBIDAS ---
+(10, 3, 'Gaseosa Gigante XL', 'Vaso de 32oz (Coca-Cola, Inka Cola, Sprite)', 11.00, 'gaseosa_xl.png', 8000),
+(11, 3, 'Gaseosa Mediana', 'Vaso de 22oz (Coca-Cola, Inka Cola, Fanta)', 9.00, 'gaseosa_mediana.png', 7500),
+(12, 3, 'Agua San Luis Sin Gas', 'Botella personal de 500ml', 6.00, 'agua_sin_gas.png', 3000),
+(13, 3, 'Chicha Morada Natural', 'Vaso mediano de chicha morada de la casa', 8.50, 'chicha_mediana.png', 2500),
+
+-- --- CATEGORÍA 4: DULCES Y SNACKS ---
+(14, 4, 'Chocolates Sublime Pack', 'Paquete de 3 unidades ideales para compartir', 8.50, 'sublime_pack.png', 4000),
+(15, 4, 'M&M Compartir', 'Bolsa grande de chocolates con maní', 12.00, 'mym_grande.png', 3000),
+(16, 4, 'Papas Lay Clásicas', 'Bolsa familiar de papas fritas saladas', 7.50, 'papas_lays.png', 3500),
+(17, 4, 'Gomitas Ambrosoli Ácidas', 'Paquete familiar de gomitas de ositos frutales', 6.50, 'gomitas_acidas.png', 2000);
+
+
+-- 4.2. PROGRAMACIÓN AUTOMÁTICA DE CARTELERA DIARIA (06 al 16 de Junio, 2026)
+DELIMITER //
+
+DROP PROCEDURE IF EXISTS pr_generar_cartelera_masiva //
+
+CREATE PROCEDURE pr_generar_cartelera_masiva()
+BEGIN
+    DECLARE v_fecha_inicio DATE DEFAULT '2026-06-06';
+    DECLARE v_fecha_fin DATE DEFAULT '2026-06-16';
+    DECLARE v_fecha_actual DATE;
+    DECLARE v_id_sala INT;
+    DECLARE v_tipo_sala VARCHAR(20);
+    DECLARE v_precio DECIMAL(10,2);
+    DECLARE v_pelicula_idx INT DEFAULT 1;
+    
+    DECLARE done INT DEFAULT FALSE;
+    DECLARE cur_salas CURSOR FOR SELECT id_sala, tipo_sala FROM salas;
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = TRUE;
+
+    SET v_fecha_actual = v_fecha_inicio;
+
+    while_fechas: WHILE v_fecha_actual <= v_fecha_fin DO
+        OPEN cur_salas;
+        SET done = FALSE;
+        
+        read_loop: LOOP
+            FETCH cur_salas INTO v_id_sala, v_tipo_sala;
+            IF done THEN
+                LEAVE read_loop;
+            END IF;
+            
+            IF v_tipo_sala = 'IMAX' THEN SET v_precio = 35.00;
+            ELSEIF v_tipo_sala = 'VIP' THEN SET v_precio = 35.00;
+            ELSEIF v_tipo_sala = '4DX' THEN SET v_precio = 25.00;
+            ELSE SET v_precio = 15.00;
+            END IF;
+
+            -- Función 1: Tarde (4:00 PM)
+            INSERT INTO funciones (id_pelicula, id_sala, fecha_hora, precio_base)
+            VALUES (((v_pelicula_idx) % 10) + 1, v_id_sala, CONCAT(v_fecha_actual, ' 16:00:00'), v_precio);
+            
+            -- Función 2: Noche (8:30 PM)
+            INSERT INTO funciones (id_pelicula, id_sala, fecha_hora, precio_base)
+            VALUES (((v_pelicula_idx + 3) % 10) + 1, v_id_sala, CONCAT(v_fecha_actual, ' 20:30:00'), v_precio);
+
+            SET v_pelicula_idx = v_pelicula_idx + 1;
+        END LOOP read_loop;
+        
+        CLOSE cur_salas;
+        SET v_fecha_actual = DATE_ADD(v_fecha_actual, INTERVAL 1 DAY);
+    END WHILE while_fechas;
+END //
+
+DELIMITER ;
+
+CALL pr_generar_cartelera_masiva();
+DROP PROCEDURE IF EXISTS pr_generar_cartelera_masiva;
+
+
+-- 4.3. INSTANCIACIÓN DE INVENTARIO DE BUTACAS POR FUNCIÓN ('Disponible')
+DELIMITER //
+
+DROP PROCEDURE IF EXISTS pr_mapear_asientos_funciones //
+
+CREATE PROCEDURE pr_mapear_asientos_funciones()
+BEGIN
+    DECLARE v_id_funcion INT;
+    DECLARE v_id_sala INT;
+    DECLARE done INT DEFAULT FALSE;
+    
+    DECLARE cur_funciones CURSOR FOR SELECT id_funcion, id_sala FROM funciones;
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = TRUE;
+
+    OPEN cur_funciones;
+
+    read_loop: LOOP
+        FETCH cur_funciones INTO v_id_funcion, v_id_sala;
+        IF done THEN
+            LEAVE read_loop;
+        END IF;
+
+        INSERT INTO asientos_funciones (id_funcion, id_asiento, estado)
+        SELECT v_id_funcion, id_asiento, 'Disponible'
+        FROM asientos
+        WHERE id_sala = v_id_sala;
+
+    END LOOP read_loop;
+
+    CLOSE cur_funciones;
+END //
+
+DELIMITER ;
+
+CALL pr_mapear_asientos_funciones();
+DROP PROCEDURE IF EXISTS pr_mapear_asientos_funciones;
+
+
+-- 4.4. RED SOCIAL: RELACIONES DE SEGUIDORES Y 50 RESEÑAS DE LA COMUNIDAD
+INSERT INTO seguidores (id_seguidor, id_seguido) VALUES
+(4, 5), (4, 6), (4, 7), (5, 4), (5, 6), (5, 8), (6, 4), (6, 5), (6, 9), (7, 4), (7, 8), (7, 10),
+(8, 5), (8, 7), (8, 11), (9, 6), (9, 10), (9, 12), (10, 7), (10, 9), (10, 13), (11, 8), (11, 12),
+(12, 9), (12, 11), (13, 10), (13, 4);
+
+TRUNCATE TABLE resenas;
+
+INSERT INTO resenas (id_usuario, id_pelicula, puntuacion_estrellas, comentario) VALUES
+-- Película 1: Amos del Universo
+(4, 1, 4, 'Excelente despliegue de Eternia, superó mis expectativas nostálgicas.'),
+(5, 1, 5, 'Visualmente es una obra maestra de la ciencia ficción moderna. Los efectos son brutales.'),
+(6, 1, 3, 'Está buena, pero el ritmo decae un poco a la mitad de la película.'),
+(7, 1, 4, 'La actuación de Skeletor es magnífica, se roba cada escena en la que aparece.'),
+(8, 1, 2, 'Mucho efecto especial pero la historia se siente algo vacía para mi gusto.'),
+-- Película 2: Paucartambo
+(9, 2, 4, 'Un documental hermoso que plasma el misticismo andino de Paucartambo de forma muy respetuosa.'),
+(10, 2, 5, 'La fotografía y el sonido de las danzas folclóricas te transportan por completo a la festividad.'),
+(11, 2, 4, 'Espectacular retrato de la cosmovisión peruana y el sincretismo cultural.'),
+(12, 2, 3, 'Interesante a nivel cultural, aunque el formato observacional se me hizo un poco lento.'),
+(13, 2, 5, 'Una joya del cine documental peruano. Totalmente recomendada para ver en pantalla grande.'),
+-- Película 3: Scary Movie Terrorificamente Incorrecta
+(4, 3, 3, 'Chistes muy buenos y subidos de tono, aunque abusa de los clichés por momentos.'),
+(5, 3, 4, 'Hacía años que no me reía tanto en el cine, se burla de todas las películas modernas de terror.'),
+(6, 3, 2, 'Un humor demasiado absurdo e incorrecto, no es para todo tipo de público.'),
+(7, 3, 4, 'Cumple con creces lo que promete: risas irreverentes y parodias brutales.'),
+(8, 3, 3, 'Tiene momentos muy divertidos, pero algunas bromas se sienten un poco desfasadas.'),
+-- Película 4: Amando a Amanda
+(9, 4, 5, 'Me reí demasiado. Gianella Neyra y Giovanni Ciccia tienen una química brillante en pantalla.'),
+(10, 4, 4, 'Una comedia romántica peruana muy bien lograda y con un ritmo excelente.'),
+(11, 4, 4, 'Los diálogos se sienten naturales y las situaciones absurdas están muy bien manejadas.'),
+(12, 4, 3, 'Es entretenida para pasar el rato, pero el guion no propone nada nuevo en el género.'),
+(13, 4, 5, 'La mejor comedia de la temporada. Los giros de la trama te mantienen enganchado.'),
+-- Película 5: Backrooms
+(4, 5, 5, 'Backrooms (2026) mantiene una atmósfera opresiva espectacular. Kane Parsons es un genio.'),
+(5, 5, 4, 'El diseño de producción y el sonido te envuelven en una tensión constante de la que no sales.'),
+(6, 5, 5, 'Una genialidad de terror psicológico que redefine el fenómeno de los creepypastas de internet.'),
+(7, 5, 3, 'Da mucho miedo y la ambientación es impecable, pero el final me dejó con dudas.'),
+(8, 5, 4, 'Hacía tiempo que una película no me generaba tanta ansiedad en el cine. Excelente.'),
+-- Película 6: The Mandalorian and Grogu
+(9, 6, 5, 'Ver a Grogu en formato IMAX es lo mejor que me pasó en el año. Maravilla cinematográfica.'),
+(10, 6, 5, 'Mantiene la esencia pura de la trilogía original de Star Wars con acción moderna increíble.'),
+(11, 6, 4, 'Un viaje galáctico fantástico de principio a fin, ideal para los fanáticos de la serie.'),
+(12, 6, 4, 'Los efectos prácticos y las batallas espaciales se ven de nivel absoluto en el cine.'),
+(13, 6, 3, 'Muy entretenida y épica, aunque se apoya demasiado en el fan service para avanzar.'),
+-- Película 7: Obsesion
+(4, 7, 2, 'Obsesion se vuelve muy predecible a mitad de camino, aunque tiene un par de buenos sustos.'),
+(5, 7, 3, 'Comienza muy bien con el misterio del hechizo, pero el desenlace se siente apresurado.'),
+(6, 7, 4, 'Una atmósfera perturbadora excelente que muta en una pesadilla claustrofóbica genial.'),
+(7, 7, 3, 'Cumple para los amantes del terror psicológico pero no aporta nada revolucionario.'),
+(8, 7, 1, 'Lamentable guion y actuaciones planas. Me aburrí bastante.'),
+-- Película 8: Las Ovejas Detectives
+(9, 8, 4, 'Las Ovejas Detectives es ingeniosa y divertida para disfrutar el fin de semana con amigos.'),
+(10, 8, 4, 'Un concepto sumamente original que combina la comedia británica con el misterio clásico de Agatha Christie.'),
+(11, 8, 5, 'Hugh Jackman y Emma Thompson están increíbles dándoles vida a estos personajes.'),
+(12, 8, 3, 'Es simpática y tiene un humor familiar bastante decente, ideal para pasar la tarde.'),
+(13, 8, 4, 'Me sorprendió gratamente la resolución del misterio criminal. Muy divertida.'),
+-- Película 9: El diablo viste a la Moda 2
+(4, 9, 1, 'En el vertiginoso mundo de la moda en Nueva York... Destrozaron la original, es una película terrible de verdad.'),
+(5, 9, 2, 'Meryl Streep brilla como siempre, pero el guion fuerza demasiado las situaciones de esta secuela.'),
+(6, 9, 1, 'Innecesaria por donde se le mire. No se acerca en lo absoluto al impacto de la primera entrega.'),
+(7, 9, 3, 'Tiene vestuarios increíbles y buena música, pero la trama se siente repetitiva y floja.'),
+(8, 9, 2, 'Una decepción comercial que solo busca lucrar con la nostalgia de un clásico moderno.'),
+-- Película 10: Michael
+(9, 10, 5, 'Jaafar Jackson captura la esencia de Michael de forma impactante. Las recreaciones de conciertos son una locura.'),
+(10, 10, 5, 'Una biografía cinematográfica monumental y respetuosa con el legado musical del Rey del Pop.'),
+(11, 10, 5, 'La dirección de Antoine Fuqua es perfecta para retratar la magnitud creativa de este ícono.'),
+(12, 10, 4, 'Impresionante despliegue coreográfico y técnico. Te mantiene pegado al asiento las dos horas.'),
+(13, 10, 4, 'Una montaña rusa de emociones que rinde tributo a su genialidad musical de forma espectacular.');
+
+
+-- 4.5. PROCESAMIENTO TRANSACCIONAL MASIVO (Simulación de Compras)
+DELIMITER //
+
+DROP PROCEDURE IF EXISTS pr_simular_compras_masivas //
+
+CREATE PROCEDURE pr_simular_compras_masivas()
+BEGIN
+    DECLARE v_id_txn INT DEFAULT 1;
+    DECLARE v_id_user INT;
+    DECLARE v_id_func INT;
+    DECLARE v_precio_base DECIMAL(10,2);
+    DECLARE v_id_asiento INT;
+    DECLARE v_monto_tkts DECIMAL(10,2);
+    DECLARE v_monto_confi DECIMAL(10,2);
+    DECLARE v_monto_total DECIMAL(10,2);
+    DECLARE done INT DEFAULT FALSE;
+    
+    DECLARE cur_ventas CURSOR FOR SELECT id_funcion, precio_base FROM funciones LIMIT 45;
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = TRUE;
+
+    OPEN cur_ventas;
+
+    read_loop: LOOP
+        FETCH cur_ventas INTO v_id_func, v_precio_base;
+        IF done THEN
+            LEAVE read_loop;
+        END IF;
+
+        SET v_id_user = 4 + (v_id_txn % 10);
+        SET v_monto_tkts = v_precio_base * 2;
+        
+        IF (v_id_txn % 2 = 0) THEN SET v_monto_confi = 45.00;
+        ELSE SET v_monto_confi = 26.00;
+        END IF;
+        
+        SET v_monto_total = v_monto_tkts + v_monto_confi;
+
+        INSERT INTO transacciones (id_transaccion, id_usuario, id_funcion, monto_boletos, monto_confiteria, monto_total, estado_pago, metodo_pago)
+        VALUES (v_id_txn, v_id_user, v_id_func, v_monto_tkts, v_monto_confi, v_monto_total, 'Aprobado', CONCAT('Visa **** ', 3000 + v_id_txn));
+
+        SELECT id_asiento INTO v_id_asiento 
+        FROM asientos_funciones 
+        WHERE id_funcion = v_id_func AND estado = 'Disponible' 
+        LIMIT 1;
+
+        UPDATE asientos_funciones SET estado = 'Ocupado' WHERE id_funcion = v_id_func AND id_asiento = v_id_asiento;
+        
+        INSERT INTO detalle_boleta_asientos (id_transaccion, id_asiento, ingresado) VALUES (v_id_txn, v_id_asiento, FALSE);
+        
+        INSERT INTO detalle_boleta_confiteria (id_transaccion, id_producto, cantidad, precio_unitario) 
+        VALUES (v_id_txn, IF(v_id_txn % 2 = 0, 2, 1), 1, v_monto_confi);
+
+        INSERT INTO boletas_tickets (id_transaccion, codigo_qr_token, estado_ticket)
+        VALUES (v_id_txn, CONCAT('QR-FILMATE-TXN', v_id_txn, '-X92'), 'Valido');
+
+        SET v_id_txn = v_id_txn + 1;
+    END LOOP read_loop;
+
+    CLOSE cur_ventas;
+END //
+
+DELIMITER ;
+
+CALL pr_simular_compras_masivas();
+DROP PROCEDURE IF EXISTS pr_simular_compras_masivas;
+-- ====================================================================
+-- COMPONENTE 4: CONSULTAS AVANZADAS, VISTAS Y PROCEDIMIENTOS DE NEGOCIO
+-- ====================================================================
+
+USE filmate_db;
+
+-- 4.1. VISTAS CONFIGURADAS PARA FILTRAR BAJAS LÓGICAS (SOFT DELETE)
+
+-- Vista 1: Cartelera Activa Detallada (Filtra películas, cines y salas eliminados)
+CREATE OR REPLACE VIEW vw_cartelera_activa AS
+SELECT 
+    f.id_funcion,
+    p.id_pelicula,
+    p.titulo AS pelicula_titulo,
+    p.duracion_minutos,
+    p.clasificacion,
+    p.url_poster,
+    p.url_trailer,
+    c.id_cine,
+    c.nombre_cine,
+    s.id_sala,
+    s.nombre_sala,
+    s.tipo_sala,
+    s.tipo_formato,
+    f.fecha_hora,
+    f.precio_base
+FROM funciones f
+INNER JOIN peliculas p ON f.id_pelicula = p.id_pelicula AND p.eliminado = FALSE
+INNER JOIN salas s ON f.id_sala = s.id_sala AND s.eliminado = FALSE
+INNER JOIN cines c ON s.id_cine = c.id_cine AND c.eliminado = FALSE
+WHERE f.fecha_hora >= NOW()
+ORDER BY f.fecha_hora ASC;
+
+-- Vista 2: Métricas de Recaudación por Cine (Ignora cines eliminados)
+CREATE OR REPLACE VIEW vw_reporte_ventas_cines AS
+SELECT 
+    c.id_cine,
+    c.nombre_cine,
+    COUNT(DISTINCT t.id_transaccion) AS total_transacciones_aprobadas,
+    IFNULL(SUM(t.monto_boletos), 0.00) AS ingresos_taquilla,
+    IFNULL(SUM(t.monto_confiteria), 0.00) AS ingresos_dulceria,
+    IFNULL(SUM(t.monto_total), 0.00) AS recaudacion_total
+FROM cines c
+LEFT JOIN salas s ON c.id_cine = s.id_cine AND s.eliminado = FALSE
+LEFT JOIN funciones f ON s.id_sala = f.id_sala
+LEFT JOIN transacciones t ON f.id_funcion = t.id_funcion AND t.estado_pago = 'Aprobado'
+WHERE c.eliminado = FALSE
+GROUP BY c.id_cine, c.nombre_cine;
+
+-- Vista 3: Feed Social de Reseñas (Oculta contenido de usuarios o películas eliminadas)
+CREATE OR REPLACE VIEW vw_feed_social_resenas AS
+SELECT 
+    r.id_resena,
+    u.id_usuario,
+    u.username,
+    u.url_perfil AS usuario_avatar,
+    p.id_pelicula,
+    p.titulo AS pelicula_titulo,
+    r.puntuacion_estrellas,
+    r.comentario,
+    r.fecha_publicacion
+FROM resenas r
+INNER JOIN usuarios u ON r.id_usuario = u.id_usuario AND u.eliminado = FALSE
+INNER JOIN peliculas p ON r.id_pelicula = p.id_pelicula AND p.eliminado = FALSE
+ORDER BY r.fecha_publicacion DESC;
+
+
+-- ====================================================================
+-- 4.2. PROCEDIMIENTOS ALMACENADOS AVANZADOS (INCLUYE BAJA LÓGICA)
+-- ====================================================================
+DELIMITER //
+
+-- Procedimiento 1: Soft Delete Cascada para Cines y sus Salas/Asientos
+DROP PROCEDURE IF EXISTS pr_eliminar_cine_logico //
+CREATE PROCEDURE pr_eliminar_cine_logico(IN p_id_cine INT)
+BEGIN
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        ROLLBACK;
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Error en cascada de Soft Delete. Operación revertida.';
+    END;
+
+    START TRANSACTION;
+        -- 1. Marcar baja del Cine
+        UPDATE cines SET eliminado = TRUE, fecha_eliminacion = NOW() WHERE id_cine = p_id_cine;
+        
+        -- 2. Marcar baja de las Salas vinculadas
+        UPDATE salas SET eliminado = TRUE, fecha_eliminacion = NOW() WHERE id_cine = p_id_cine;
+        
+        -- 3. Marcar baja de los Asientos vinculados a las salas de ese cine
+        UPDATE asientos a
+        INNER JOIN salas s ON a.id_sala = s.id_sala
+        SET a.eliminado = TRUE, a.fecha_eliminacion = NOW()
+        WHERE s.id_cine = p_id_cine;
+    COMMIT;
+END //
+
+-- Procedimiento 2: Compra Atómica y Asignación Pesimista de Butacas
+DROP PROCEDURE IF EXISTS pr_registrar_compra_boleto //
+CREATE PROCEDURE pr_registrar_compra_boleto(
+    IN p_id_usuario INT,
+    IN p_id_funcion INT,
+    IN p_id_asiento INT,
+    IN p_monto_boletos DECIMAL(10,2),
+    IN p_metodo_pago VARCHAR(50),
+    IN p_token_qr VARCHAR(255)
+)
+BEGIN
+    DECLARE v_id_txn INT;
+    DECLARE v_estado_asiento VARCHAR(20);
+    
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        ROLLBACK;
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Error transaccional. Proceso de pago abortado.';
+    END;
+
+    START TRANSACTION;
+    
+    SELECT estado INTO v_estado_asiento 
+    FROM asientos_funciones 
+    WHERE id_funcion = p_id_funcion AND id_asiento = p_id_asiento FOR UPDATE;
+    
+    IF v_estado_asiento != 'Disponible' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Error: La butaca seleccionada ya no se encuentra libre.';
+    ELSE
+        UPDATE asientos_funciones SET estado = 'Ocupado' WHERE id_funcion = p_id_funcion AND id_asiento = p_id_asiento;
+        
+        INSERT INTO transacciones (id_usuario, id_funcion, monto_boletos, monto_confiteria, monto_total, estado_pago, metodo_pago)
+        VALUES (p_id_usuario, p_id_funcion, p_monto_boletos, 0.00, p_monto_boletos, 'Aprobado', p_metodo_pago);
+        
+        SET v_id_txn = LAST_INSERT_ID();
+        
+        INSERT INTO detalle_boleta_asientos (id_transaccion, id_asiento, ingresado) VALUES (v_id_txn, p_id_asiento, FALSE);
+        INSERT INTO boletas_tickets (id_transaccion, codigo_qr_token, estado_ticket) VALUES (v_id_txn, p_token_qr, 'Valido');
+    END IF;
+
+    COMMIT;
+END //
+
+-- Procedimiento 3: Validación e Ingreso Móvil QR en Puerta
+DROP PROCEDURE IF EXISTS pr_validar_ingreso_qr //
+CREATE PROCEDURE pr_validar_ingreso_qr(IN p_token_qr VARCHAR(255), IN p_id_portero INT)
+BEGIN
+    DECLARE v_id_ticket INT;
+    DECLARE v_estado_ticket VARCHAR(20);
+    DECLARE v_id_txn INT;
+    DECLARE v_id_asiento INT;
+    DECLARE v_ya_ingresado BOOLEAN;
+
+    SELECT id_ticket, estado_ticket, id_transaccion 
+    INTO v_id_ticket, v_estado_ticket, v_id_txn
+    FROM boletas_tickets WHERE codigo_qr_token = p_token_qr;
+
+    IF v_id_ticket IS NULL THEN
+        INSERT INTO log_validaciones_qr (ticket_escaneado, resultado_validacion, id_usuario_control) VALUES (p_token_qr, 'Inválida', p_id_portero);
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'QR Inválido: Entrada no registrada.';
+    ELSEIF v_estado_ticket != 'Valido' THEN
+        INSERT INTO log_validaciones_qr (ticket_escaneado, resultado_validacion, id_usuario_control) VALUES (p_token_qr, 'Ya Usada', p_id_portero);
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Acceso denegado: El ticket ya fue canjeado o anulado.';
+    ELSE
+        SELECT id_asiento, ingresado INTO v_id_asiento, v_ya_ingresado FROM detalle_boleta_asientos WHERE id_transaccion = v_id_txn LIMIT 1;
+        
+        IF v_ya_ingresado = TRUE THEN
+            INSERT INTO log_validaciones_qr (ticket_escaneado, resultado_validacion, id_usuario_control) VALUES (p_token_qr, 'Ya Usada', p_id_portero);
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Fraude: Esta butaca ya registra ingreso físico activo.';
+        ELSE
+            UPDATE detalle_boleta_asientos SET ingresado = TRUE, fecha_ingreso = CURRENT_TIMESTAMP WHERE id_transaccion = v_id_txn AND id_asiento = v_id_asiento;
+            UPDATE boletas_tickets SET estado_ticket = 'Canjeado' WHERE id_ticket = v_id_ticket;
+            INSERT INTO log_validaciones_qr (ticket_escaneado, resultado_validacion, id_usuario_control) VALUES (p_token_qr, 'Valida', p_id_portero);
+        END IF;
+    END IF;
+END //
+
+-- Procedimiento 4: Limpieza Automática de Bloqueos Expirados de Butacas
+DROP PROCEDURE IF EXISTS pr_limpiar_bloqueos_expirados //
+CREATE PROCEDURE pr_limpiar_bloqueos_expirados()
+BEGIN
+    UPDATE asientos_funciones af
+    INNER JOIN bloqueos_temporales bt ON af.id_funcion = bt.id_funcion AND af.id_asiento = bt.id_asiento
+    SET af.estado = 'Disponible' WHERE bt.expira_en < NOW();
+    
+    DELETE FROM bloqueos_temporales WHERE expira_en < NOW();
+END //
+
+DELIMITER ;
+
+-- ====================================================================
+-- 4.3. DISPARADORES AUTOMÁTICOS DE AUDITORÍA Y CONTROL DE STOCK
+-- ====================================================================
+DELIMITER //
+
+-- Trigger 1: Registro Automatizado en Bitácora Social (Reseñas)
+DROP TRIGGER IF EXISTS despues_de_publicar_resena //
+CREATE TRIGGER despues_de_publicar_resena
+AFTER INSERT ON resenas
+FOR EACH ROW
+BEGIN
+    INSERT INTO historial_actividad (id_usuario, tipo_evento, id_referencia_pelicula, id_referencia_resena, texto_breve)
+    VALUES (NEW.id_usuario, 'RESENA', NEW.id_pelicula, NEW.id_resena, NEW.comentario);
+END //
+
+-- Trigger 2: Contadores Dinámicos de Comunidad e Interacciones (Vistas / Favoritos)
+DROP TRIGGER IF EXISTS despues_de_actualizar_interaccion //
+CREATE TRIGGER despues_de_actualizar_interaccion
+AFTER UPDATE ON interacciones_peliculas
+FOR EACH ROW
+BEGIN
+    IF NEW.favorita = TRUE AND OLD.favorita = FALSE THEN
+        UPDATE peliculas SET total_favoritos_comunidad = total_favoritos_comunidad + 1 WHERE id_pelicula = NEW.id_pelicula;
+        INSERT INTO historial_actividad (id_usuario, tipo_evento, id_referencia_pelicula, texto_breve)
+        VALUES (NEW.id_usuario, 'FAVORITO', NEW.id_pelicula, 'Agregó la película a su lista de favoritos.');
+    ELSEIF NEW.favorita = FALSE AND OLD.favorita = TRUE THEN
+        UPDATE peliculas SET total_favoritos_comunidad = GREATEST(0, total_favoritos_comunidad - 1) WHERE id_pelicula = NEW.id_pelicula;
+    END IF;
+
+    IF NEW.vista = TRUE AND OLD.vista = FALSE THEN
+        UPDATE peliculas SET total_vistas_comunidad = total_vistas_comunidad + 1 WHERE id_pelicula = NEW.id_pelicula;
+    END IF;
+END //
+
+-- Trigger 3: Descuento de Inventario Físico Automatizado al Vender Dulcería
+DROP TRIGGER IF EXISTS despues_de_vender_confiteria //
+CREATE TRIGGER despues_de_vender_confiteria
+AFTER INSERT ON detalle_boleta_confiteria
+FOR EACH ROW
+BEGIN
+    UPDATE productos_confiteria SET stock = GREATEST(0, stock - NEW.cantidad) WHERE id_producto = NEW.id_producto;
+END //
+
+-- Trigger 4: Bitácora Social para Nuevos Seguidores
+DROP TRIGGER IF EXISTS despues_de_seguir_usuario //
+CREATE TRIGGER despues_de_seguir_usuario
+AFTER INSERT ON seguidores
+FOR EACH ROW
+BEGIN
+    INSERT INTO historial_actividad (id_usuario, tipo_evento, id_referencia_usuario, texto_breve)
+    VALUES (NEW.id_seguidor, 'SEGUIDOR', NEW.id_seguido, 'Comenzó a seguir a un miembro de la comunidad.');
+END //
+
+-- Trigger 5: Alerta de Auditoría Interna ante Alteración de Precios de Funciones
+DROP TRIGGER IF EXISTS auditoria_alteracion_precios //
+CREATE TRIGGER auditoria_alteracion_precios
+AFTER UPDATE ON funciones
+FOR EACH ROW
+BEGIN
+    IF OLD.precio_base <> NEW.precio_base THEN
+        INSERT INTO log_actividad_sistema (id_usuario, accion_realizada, modulo_afectado, ip_origen)
+        VALUES (NULL, CONCAT('Cambio de precio base en función ID: ', NEW.id_funcion, '. Anterior: S/.', OLD.precio_base, ' -> Nuevo: S/.', NEW.precio_base), 'CARTELERA', '127.0.0.1');
+    END IF;
+END //
+
+DELIMITER ;
