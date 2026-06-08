@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
 import logging
 
 from app.core.database import engine, Base
@@ -49,8 +50,9 @@ app = FastAPI(
     version="0.2.0",
     description="API para la plataforma Filmate — Nueva BD",
     openapi_tags=tags_metadata,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    openapi_url="/api/openapi.json",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
 )
 
 # ── User-facing routes (sin prefijo /admin) ──
@@ -90,6 +92,16 @@ app.include_router(admin_reservas.router)
 def root():
     logger.info("GET / - API activa")
     return {"message": "Filmate API funcionando"}
+
+
+@app.get("/docs", include_in_schema=False)
+def docs_redirect():
+    return RedirectResponse(url="/api/docs")
+
+
+@app.get("/redoc", include_in_schema=False)
+def redoc_redirect():
+    return RedirectResponse(url="/api/redoc")
 
 
 @app.get("/health", summary="Health Check", tags=["health"])

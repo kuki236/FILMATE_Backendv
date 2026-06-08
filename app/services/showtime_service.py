@@ -1,4 +1,6 @@
-from datetime import datetime
+"""Servicios para consulta de funciones y horarios por sede."""
+
+from datetime import date, datetime, time, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy import func, select
@@ -63,7 +65,32 @@ def list_showtimes_by_cinema(db: Session, cinema_id: int, only_future: bool = Tr
 
 
 def list_showtimes_by_movie(db: Session, movie_id: int):
-    showtimes = db.query(Funcion).filter(Funcion.id_pelicula == movie_id).all()
-    if not showtimes:
-        raise HTTPException(status_code=404, detail="No se encontraron funciones para esta película")
+    showtimes = (
+        db.query(Funcion)
+        .filter(Funcion.id_pelicula == movie_id)
+        .all()
+    )
     return showtimes
+
+
+def list_showtimes_by_date(
+    db: Session,
+    target_date: date,
+    cinema_id: int | None = None,
+    movie_id: int | None = None,
+):
+    day_start = datetime.combine(target_date, time.min)
+    day_end = day_start + timedelta(days=1)
+
+    query = db.query(Funcion).filter(
+        Funcion.fecha_hora >= day_start,
+        Funcion.fecha_hora < day_end,
+    )
+
+    if movie_id is not None:
+        query = query.filter(Funcion.id_pelicula == movie_id)
+
+    if cinema_id is not None:
+        query = query.join(Sala, Funcion.id_sala == Sala.id_sala).filter(Sala.id_cine == cinema_id)
+
+    return query.order_by(Funcion.fecha_hora).all()

@@ -28,6 +28,14 @@ app.models.cinema module
    :show-inheritance:
    :undoc-members:
 
+app.models.director module
+----------------------
+
+.. automodule:: app.models.director
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
 app.models.favorite module
 ----------------------
 
@@ -44,6 +52,14 @@ app.models.genre module
    :show-inheritance:
    :undoc-members:
 
+app.models.motivo\_devolucion module
+--------------------------------
+
+.. automodule:: app.models.motivo_devolucion
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
 app.models.movie module
 -------------------
 
@@ -56,6 +72,14 @@ app.models.movie\_actor module
 --------------------------
 
 .. automodule:: app.models.movie_actor
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
+app.models.movie\_director module
+-----------------------------
+
+.. automodule:: app.models.movie_director
    :members:
    :show-inheritance:
    :undoc-members:

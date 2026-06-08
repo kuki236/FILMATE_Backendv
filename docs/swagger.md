@@ -4,7 +4,7 @@ La API expone su documentación OpenAPI/Swagger de forma automática mediante Fa
 
 URLs disponibles en desarrollo:
 
-- Swagger UI interactivo: `GET /docs`
+- Swagger UI interactivo: `GET /api/docs`
 - Redoc: `GET /redoc`
 - Esquema OpenAPI JSON: `GET /openapi.json`
 
@@ -16,7 +16,7 @@ Cómo usar:
 uvicorn app.main:app --reload
 ```
 
-2. Abre en el navegador `http://localhost:8000/docs`.
+2. Abre en el navegador `http://localhost:8000/api/docs`.
 
 3. Desde la UI de Swagger puedes: probar endpoints, ver esquemas de request/response, y copiar ejemplos de curl.
 
