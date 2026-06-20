@@ -19,7 +19,7 @@ def list_transactions(
     buscar: Optional[str] = None,
     tipo: Optional[str] = None,
     page: int = Query(1, ge=1),
-    limit: int = Query(10, ge=1, le=100),
+    limit: int = Query(10, ge=1, le=500),
     db: Session = Depends(get_db),
 ):
     return transaction_repository.list_transactions(db, tipo=tipo, estado=estado, fecha=fecha, buscar=buscar, page=page, limit=limit)

@@ -1,11 +1,11 @@
-from datetime import date, datetime
+from datetime import datetime
 from typing import Optional, List
 
 from pydantic import BaseModel
 
 
 class VentaPorDia(BaseModel):
-    dia: date
+    dia: str
     ventas: int
 
 
@@ -16,6 +16,11 @@ class PeliculaTaquillera(BaseModel):
 
 class IngresoPorFormato(BaseModel):
     tipo_formato: str
+    total: float
+
+
+class IngresoPorCategoria(BaseModel):
+    tipo_sala: str
     total: float
 
 
@@ -36,5 +41,6 @@ class DashboardResponse(BaseModel):
     peliculaMasTaquillera: Optional[PeliculaTaquillera] = None
     ocupacionPromedio: float
     ingresosPorFormato: List[IngresoPorFormato]
+    ingresosPorCategoria: List[IngresoPorCategoria]
     nuevosUsuarios: int
     comparacion: ComparacionPeriodo

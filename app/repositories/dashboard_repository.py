@@ -11,8 +11,7 @@ from app.models.transaccion import Transaccion
 from app.models.user import Usuario
 
 
-def get_ventas_por_dia(db: Session):
-    inicio = datetime.now() - timedelta(days=7)
+def get_ventas_por_dia(db: Session, inicio: datetime, fin: datetime):
     resultados = (
         db.query(
             func.date(Transaccion.fecha_transaccion).label("dia"),
@@ -20,16 +19,22 @@ def get_ventas_por_dia(db: Session):
         )
         .filter(
             Transaccion.estado_pago == "Aprobado",
-            Transaccion.fecha_transaccion >= inicio,
+            Transaccion.fecha_transaccion.between(inicio, fin),
         )
         .group_by(func.date(Transaccion.fecha_transaccion))
         .order_by(func.date(Transaccion.fecha_transaccion))
         .all()
     )
-    return [{"dia": row.dia, "ventas": row.ventas} for row in resultados]
+    ventas_dict = {row.dia.strftime("%Y-%m-%d"): row.ventas for row in resultados}
+    resultado_final = []
+    delta = fin - inicio
+    for i in range(delta.days + 1):
+        dia = (inicio + timedelta(days=i)).strftime("%Y-%m-%d")
+        resultado_final.append({"dia": dia, "ventas": ventas_dict.get(dia, 0)})
+    return resultado_final
 
 
-def get_pelicula_mas_taquillera(db: Session):
+def get_pelicula_mas_taquillera(db: Session, inicio: datetime):
     resultado = (
         db.query(
             Pelicula.titulo,
@@ -37,7 +42,10 @@ def get_pelicula_mas_taquillera(db: Session):
         )
         .join(Funcion, Funcion.id_funcion == Transaccion.id_funcion)
         .join(Pelicula, Pelicula.id_pelicula == Funcion.id_pelicula)
-        .filter(Transaccion.estado_pago == "Aprobado")
+        .filter(
+            Transaccion.estado_pago == "Aprobado",
+            Transaccion.fecha_transaccion >= inicio,
+        )
         .group_by(Pelicula.id_pelicula, Pelicula.titulo)
         .order_by(func.coalesce(func.sum(Transaccion.monto_total), 0).desc())
         .first()
@@ -47,20 +55,20 @@ def get_pelicula_mas_taquillera(db: Session):
     return None
 
 
-def get_ocupacion_promedio(db: Session):
+def get_ocupacion_promedio(db: Session, inicio: datetime, fin: datetime):
     resultado = (
         db.query(
             func.count(case((AsientoFuncion.estado == "Ocupado", 1))) * 100.0
             / func.count(AsientoFuncion.id_asiento)
         )
         .join(Funcion, AsientoFuncion.id_funcion == Funcion.id_funcion)
-        .filter(Funcion.fecha_hora >= datetime.now())
+        .filter(Funcion.fecha_hora.between(inicio, fin))
         .scalar()
     )
     return round(float(resultado), 2) if resultado else 0.0
 
 
-def get_ingresos_por_formato(db: Session):
+def get_ingresos_por_formato(db: Session, inicio: datetime, fin: datetime):
     resultados = (
         db.query(
             Sala.tipo_formato,
@@ -68,11 +76,32 @@ def get_ingresos_por_formato(db: Session):
         )
         .join(Funcion, Funcion.id_funcion == Transaccion.id_funcion)
         .join(Sala, Sala.id_sala == Funcion.id_sala)
-        .filter(Transaccion.estado_pago == "Aprobado")
+        .filter(
+            Transaccion.estado_pago == "Aprobado",
+            Transaccion.fecha_transaccion.between(inicio, fin),
+        )
         .group_by(Sala.tipo_formato)
         .all()
     )
     return [{"tipo_formato": row.tipo_formato, "total": float(row.total)} for row in resultados]
+
+
+def get_ingresos_por_categoria(db: Session, inicio: datetime, fin: datetime):
+    resultados = (
+        db.query(
+            Sala.tipo_sala,
+            func.coalesce(func.sum(Transaccion.monto_total), 0).label("total"),
+        )
+        .join(Funcion, Funcion.id_funcion == Transaccion.id_funcion)
+        .join(Sala, Sala.id_sala == Funcion.id_sala)
+        .filter(
+            Transaccion.estado_pago == "Aprobado",
+            Transaccion.fecha_transaccion.between(inicio, fin),
+        )
+        .group_by(Sala.tipo_sala)
+        .all()
+    )
+    return [{"tipo_sala": row.tipo_sala, "total": float(row.total)} for row in resultados]
 
 
 def get_nuevos_usuarios(db: Session, desde: datetime):
@@ -126,21 +155,43 @@ def _calcular_cambio(actual, anterior):
     return 0.0 if actual == 0 else 100.0
 
 
-def get_dashboard_data(db: Session):
-    today = datetime.now()
-    inicio_mes_actual = today.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    fin_mes_anterior = inicio_mes_actual - timedelta(days=1)
-    inicio_mes_anterior = fin_mes_anterior.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+def _calcular_periodo(periodo: str, hoy: datetime):
+    if periodo == "hoy":
+        inicio = hoy.replace(hour=0, minute=0, second=0, microsecond=0)
+        fin = hoy
+    elif periodo == "semana":
+        inicio = (hoy - timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0)
+        fin = hoy
+    elif periodo == "mes":
+        inicio = hoy.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        fin = hoy
+    elif periodo == "mes_anterior":
+        inicio = (hoy.replace(day=1) - timedelta(days=1)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        fin = hoy.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    else:
+        inicio = hoy.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        fin = hoy
+    return inicio, fin
 
-    actual = _get_metricas_periodo(db, inicio_mes_actual, today)
-    anterior = _get_metricas_periodo(db, inicio_mes_anterior, inicio_mes_actual)
+
+def get_dashboard_data(db: Session, periodo: str = "mes"):
+    hoy = datetime.now()
+    inicio, fin = _calcular_periodo(periodo, hoy)
+
+    duracion = fin - inicio
+    inicio_anterior = inicio - duracion
+    fin_anterior = inicio
+
+    actual = _get_metricas_periodo(db, inicio, fin)
+    anterior = _get_metricas_periodo(db, inicio_anterior, fin_anterior)
 
     return {
-        "ventasPorDia": get_ventas_por_dia(db),
-        "peliculaMasTaquillera": get_pelicula_mas_taquillera(db),
-        "ocupacionPromedio": get_ocupacion_promedio(db),
-        "ingresosPorFormato": get_ingresos_por_formato(db),
-        "nuevosUsuarios": get_nuevos_usuarios(db, inicio_mes_actual),
+        "ventasPorDia": get_ventas_por_dia(db, inicio, fin),
+        "peliculaMasTaquillera": get_pelicula_mas_taquillera(db, inicio),
+        "ocupacionPromedio": get_ocupacion_promedio(db, inicio, fin),
+        "ingresosPorFormato": get_ingresos_por_formato(db, inicio, fin),
+        "ingresosPorCategoria": get_ingresos_por_categoria(db, inicio, fin),
+        "nuevosUsuarios": get_nuevos_usuarios(db, inicio),
         "comparacion": {
             "ventas": {
                 "actual": actual["ventas"],

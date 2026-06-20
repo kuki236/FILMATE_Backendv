@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_db
@@ -12,5 +12,8 @@ router = APIRouter(prefix="/admin/dashboard", tags=["admin dashboard"])
 
 
 @router.get("/", response_model=DashboardResponse)
-def get_dashboard(db: Session = Depends(get_db)):
-    return dashboard_repository.get_dashboard_data(db)
+def get_dashboard(
+    periodo: str = Query("mes", regex="^(hoy|semana|mes|mes_anterior)$"),
+    db: Session = Depends(get_db),
+):
+    return dashboard_repository.get_dashboard_data(db, periodo)
