@@ -241,7 +241,7 @@ def reportes_generados(
     _admin: Annotated[dict, Depends(get_current_admin)],
 ):
     row = reports_repository.get_reporte_contador(db)
-    return {"count": row.count, "ultima_generacion": row.ultima_generacion.isoformat() if row.ultima_generacion else None}
+    return {"count": row.count, "ultima_generacion": row.ultima_generacion}
 
 
 @router.post("/generar")

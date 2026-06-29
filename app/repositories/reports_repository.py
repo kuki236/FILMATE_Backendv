@@ -9,7 +9,7 @@ from app.models.detalle_boleta_confiteria import DetalleBoletaConfiteria
 from app.models.genre import Genero
 from app.models.movie import Pelicula
 from app.models.movie_genre import PeliculaGenero
-from app.models.reporte_contador import ReporteContador
+
 from app.models.room import Sala
 from app.models.showtime import Funcion
 from app.models.showtime_seat import AsientoFuncion
@@ -338,6 +338,7 @@ def get_detalle_compras_data(db: Session, periodo: str):
             db.query(
                 func.concat(ProductoConfiteria.nombre_producto, " x", DetalleBoletaConfiteria.cantidad)
             )
+            .select_from(DetalleBoletaConfiteria)
             .join(ProductoConfiteria, ProductoConfiteria.id_producto == DetalleBoletaConfiteria.id_producto)
             .filter(DetalleBoletaConfiteria.id_transaccion == r.id_transaccion)
             .all()
@@ -374,20 +375,51 @@ def get_detalle_compras_data(db: Session, periodo: str):
 
 
 def get_reporte_contador(db: Session):
-    row = db.query(ReporteContador).filter(ReporteContador.id == 1).first()
+    from app.models.configuracion_sistema import ConfiguracionSistema
+    import json
+    row = db.query(ConfiguracionSistema).filter(
+        ConfiguracionSistema.clave == 'reportes_contador'
+    ).first()
     if not row:
-        row = ReporteContador(id=1, count=0, ultima_generacion=None)
+        valor = json.dumps({"count": 0, "ultima_generacion": None})
+        row = ConfiguracionSistema(
+            clave='reportes_contador',
+            valor=valor,
+            descripcion='Contador de reportes generados',
+            tipo_dato='json',
+            categoria='sistema'
+        )
         db.add(row)
         db.commit()
         db.refresh(row)
-    return row
+    data = json.loads(row.valor)
+    return type('obj', (object,), {
+        'count': data['count'],
+        'ultima_generacion': data['ultima_generacion']
+    })()
 
 
 def incrementar_reporte_contador(db: Session):
+    from app.models.configuracion_sistema import ConfiguracionSistema
+    import json
     from datetime import datetime
-    row = get_reporte_contador(db)
-    row.count += 1
-    row.ultima_generacion = datetime.now()
+    row = db.query(ConfiguracionSistema).filter(
+        ConfiguracionSistema.clave == 'reportes_contador'
+    ).first()
+    data = json.loads(row.valor) if row else {"count": 0, "ultima_generacion": None}
+    data['count'] += 1
+    data['ultima_generacion'] = datetime.now().isoformat()
+    if not row:
+        row = ConfiguracionSistema(
+            clave='reportes_contador', valor=json.dumps(data),
+            descripcion='Contador de reportes generados', tipo_dato='json',
+            categoria='sistema'
+        )
+        db.add(row)
+    else:
+        row.valor = json.dumps(data)
     db.commit()
     db.refresh(row)
-    return {"count": row.count, "ultima_generacion": row.ultima_generacion.isoformat() if row.ultima_generacion else None}
+    return {"count": data['count'], "ultima_generacion": data['ultima_generacion']}
+
+

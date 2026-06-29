@@ -10,10 +10,11 @@ from app.routes import (
     client_orders, client_tickets, client_reviews, client_snacks,
     client_reservations, client_interacciones,
     client_colecciones, client_carrito, client_seguidores, client_actividad,
+    client_reembolsos,
     admin_movies, admin_cinemas, admin_showtimes, admin_seats, admin_users,
     admin_transactions, rooms, admin_reembolsos,
     reservations, admin_reservas, interacciones, roles, admin_dashboard,
-    admin_reports,
+    admin_reports, admin_config,
 )
 from app.websocket.seats_ws import router as seats_ws_router
 
@@ -73,7 +74,6 @@ def create_app() -> FastAPI:
     app.include_router(client_seats.router)
     app.include_router(client_orders.router)
     app.include_router(client_tickets.router)
-    app.include_router(seats_ws_router)
     app.include_router(client_snacks.router)
     app.include_router(client_reservations.router)
     app.include_router(client_interacciones.router)
@@ -82,6 +82,7 @@ def create_app() -> FastAPI:
     app.include_router(client_seguidores.router)
     app.include_router(client_actividad.router)
     app.include_router(client_reviews.router)
+    app.include_router(client_reembolsos.router)
 
     app.include_router(admin_movies.router)
     app.include_router(admin_cinemas.router)
@@ -95,6 +96,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_reservas.router)
     app.include_router(admin_dashboard.router)
     app.include_router(admin_reports.router)
+    app.include_router(admin_config.router)
 
     @app.get("/", summary="Estado del servicio")
     def root():
