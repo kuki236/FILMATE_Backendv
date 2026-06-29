@@ -9,8 +9,8 @@ from app.routes import (
     client_movies, client_cinemas, client_showtimes, client_seats,
     client_orders, client_tickets, client_reviews, client_snacks,
     client_reservations, client_interacciones,
-    client_colecciones, client_carrito, client_seguidores, client_actividad,
-    client_reembolsos,
+    client_colecciones, client_carrito, client_seguidores, client_social,
+    client_rooms, client_users, client_reembolsos,
     admin_movies, admin_cinemas, admin_showtimes, admin_seats, admin_users,
     admin_transactions, rooms, admin_reembolsos,
     reservations, admin_reservas, interacciones, roles, admin_dashboard,
@@ -80,8 +80,10 @@ def create_app() -> FastAPI:
     app.include_router(client_colecciones.router)
     app.include_router(client_carrito.router)
     app.include_router(client_seguidores.router)
-    app.include_router(client_actividad.router)
+    app.include_router(client_social.router)
     app.include_router(client_reviews.router)
+    app.include_router(client_rooms.router)
+    app.include_router(client_users.router)
     app.include_router(client_reembolsos.router)
 
     app.include_router(admin_movies.router)

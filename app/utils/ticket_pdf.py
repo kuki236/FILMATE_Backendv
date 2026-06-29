@@ -16,7 +16,6 @@ def build_ticket_pdf(bundle: dict) -> bytes:
     funcion = bundle["funcion"]
     tickets = bundle["tickets"]
     seats = bundle["seats"]
-    qr_payload = bundle["qr_payload"]
 
     pelicula = funcion.pelicula
     sala = funcion.sala
@@ -56,9 +55,8 @@ def build_ticket_pdf(bundle: dict) -> bytes:
 
     pdf.setFont("Helvetica", 10)
     for i, ticket in enumerate(tickets):
-        ticket_asiento_id = ticket.id_asiento if hasattr(ticket, "id_asiento") else i
-        seat = next((s for s in seats if s.id_asiento == ticket_asiento_id), None)
-        asiento_str = f"{seat.fila}{seat.columna}" if seat else str(ticket_asiento_id)
+        seat = seats[i] if i < len(seats) else None
+        asiento_str = f"{seat.fila}{seat.columna}" if seat else "N/A"
         pdf.drawString(20 * mm, y, f"Boleto #{ticket.id_ticket} — Asiento {asiento_str}")
         y -= 6 * mm
 
@@ -72,7 +70,8 @@ def build_ticket_pdf(bundle: dict) -> bytes:
     pdf.drawString(130 * mm, y, f"S/ {float(transaccion.monto_total):.2f}")
     y -= 12 * mm
 
-    qr_image = qrcode.make(qr_payload.payload_json)
+    qr_token = f"FILMATE-TXN-{transaccion.id_transaccion}"
+    qr_image = qrcode.make(qr_token)
     qr_buffer = BytesIO()
     qr_image.save(qr_buffer, format="PNG")
     qr_buffer.seek(0)

@@ -1,7 +1,7 @@
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_db
@@ -19,6 +19,13 @@ def follow(payload: SeguirRequest, db: Annotated[Session, Depends(get_db)]):
 @router.post("/dejar-de-seguir")
 def unfollow(payload: SeguirRequest, db: Annotated[Session, Depends(get_db)]):
     seguidor_repository.unfollow(db, payload.id_usuario, payload.id_seguir)
+    return {"message": "Dejaste de seguir a este usuario"}
+
+@router.delete("/{user_id}/siguiendo/{seguido_id}", responses={404: {"description": "No sigues a este usuario"}})
+def unfollow_by_path(user_id: int, seguido_id: int, db: Annotated[Session, Depends(get_db)]):
+    deleted = seguidor_repository.unfollow(db, user_id, seguido_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="No sigues a este usuario")
     return {"message": "Dejaste de seguir a este usuario"}
 @router.get("/check/{seguidor_id}/sigue-a/{seguido_id}")
 def check_follow(seguidor_id: int, seguido_id: int, db: Annotated[Session, Depends(get_db)]):

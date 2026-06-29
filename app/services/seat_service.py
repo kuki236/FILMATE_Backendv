@@ -96,9 +96,8 @@ def set_showtime_seats_state(db: Session, showtime_id: int, seat_ids: List[int],
     return seats
 
 
-def lock_showtime_seats(db: Session, showtime_id: int, seat_ids: List[int]) -> dict:
-    with db.begin():
-        bloquear_asientos(db, 0, showtime_id, seat_ids, minutos=10)
+def lock_showtime_seats(db: Session, user_id: int, showtime_id: int, seat_ids: List[int]) -> dict:
+    bloquear_asientos(db, user_id, showtime_id, seat_ids, minutos=10)
 
     publish_current_seat_map(db, showtime_id)
     return {"id_funcion": showtime_id, "ids_asientos_bloqueados": seat_ids, "estado": "Bloqueado"}
