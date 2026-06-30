@@ -11,7 +11,6 @@ from app.repositories import movie_repository
 from app.schemas.movie import MovieResponse, MovieDetailsResponse
 from app.services.movie_service import get_movie_details
 from app.models.movie import Pelicula
-from app.models.interaccion_pelicula import InteraccionPelicula
 from app.models.showtime import Funcion
 
 logger = logging.getLogger(__name__)
@@ -48,22 +47,6 @@ def get_movie(movie_id: int, db: Annotated[Session, Depends(get_db)]):
 @router.get("/{movie_id}/details", response_model=MovieDetailsResponse)
 def movie_details(movie_id: int, db: Annotated[Session, Depends(get_db)]):
     return get_movie_details(db, movie_id)
-
-@router.get("/favorites/{user_id}", response_model=List[MovieResponse])
-def get_favorite_movies(user_id: int, db: Annotated[Session, Depends(get_db)]):
-    """Retorna la lista de películas marcadas como favoritas por un usuario específico."""
-    favoritas = (
-        db.query(Pelicula)
-        .join(InteraccionPelicula, Pelicula.id_pelicula == InteraccionPelicula.id_pelicula)
-        .filter(
-            InteraccionPelicula.id_usuario == user_id,
-            InteraccionPelicula.favorita == True,
-            Pelicula.eliminado == False
-        )
-        .order_by(InteraccionPelicula.fecha_favorito.desc())
-        .all()
-    )
-    return favoritas
 
 @router.get("/available/by-datetime", response_model=List[MovieResponse])
 def get_movies_by_datetime_range(

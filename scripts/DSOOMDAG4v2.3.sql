@@ -8,6 +8,7 @@ USE filmate_db;
 -- ====================================================================
 -- 2. ELIMINACIÓN DE TABLAS (Orden inverso estricto para evitar conflictos FK)
 -- ====================================================================
+DROP TABLE IF EXISTS configuracion_sistema;
 DROP TABLE IF EXISTS log_actividad_sistema;
 DROP TABLE IF EXISTS roles_permisos;
 DROP TABLE IF EXISTS permisos;
@@ -110,6 +111,7 @@ CREATE TABLE generos (
 
 CREATE TABLE peliculas (
     id_pelicula INT AUTO_INCREMENT PRIMARY KEY,
+    id_tmdb INT UNIQUE NULL,
     titulo VARCHAR(255) NOT NULL,
     anio_lanzamiento INT NOT NULL,
     duracion_minutos INT NOT NULL,
@@ -379,6 +381,32 @@ CREATE TABLE historial_actividad (
     fecha_evento TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (id_usuario) REFERENCES usuarios (id_usuario) ON DELETE CASCADE
 );
+
+
+-- --- MÓDULO: ADMINISTRACIÓN — CONFIGURACIÓN Y PRECIOS (HU-ADM-11) ---
+
+CREATE TABLE configuracion_sistema (
+    id_config INT AUTO_INCREMENT PRIMARY KEY,
+    clave VARCHAR(100) NOT NULL UNIQUE,
+    valor TEXT NOT NULL,
+    descripcion VARCHAR(255),
+    tipo_dato VARCHAR(20) NOT NULL DEFAULT 'string',     -- 'string' | 'number' | 'json' | 'boolean'
+    categoria VARCHAR(50) NOT NULL DEFAULT 'general',     -- 'precios' | 'entradas' | 'sistema' | 'general'
+    activo BOOLEAN NOT NULL DEFAULT TRUE,                 -- Permite desactivar parámetros sin eliminarlos
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT chk_tipo_dato CHECK (tipo_dato IN ('string', 'number', 'json', 'boolean'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT IGNORE INTO configuracion_sistema (clave, valor, descripcion, tipo_dato, categoria) VALUES
+('precios_formato', '{"2D": 8.50, "3D": 11.00, "IMAX": 14.00}', 'Precios base por formato de sala', 'json', 'precios'),
+('tipos_entrada', '[{"id":"general","tipo":"General","porcentaje":100},{"id":"nino","tipo":"Niño","porcentaje":50},{"id":"jubilado","tipo":"Jubilado","porcentaje":70},{"id":"estudiante","tipo":"Estudiante","porcentaje":80}]', 'Tipos de entrada con porcentaje sobre precio base', 'json', 'entradas'),
+('tasa_servicio', '5.00', 'Porcentaje de tasa por servicio aplicado a cada compra', 'number', 'precios'),
+('iva_porcentaje', '13.00', 'Porcentaje de IVA sobre el subtotal', 'number', 'precios'),
+('limite_asientos_por_transaccion', '10', 'Máximo de asientos permitidos por compra', 'number', 'sistema'),
+('tiempo_bloqueo_asientos_minutos', '10', 'Minutos que un asiento permanece bloqueado temporalmente', 'number', 'sistema'),
+('horas_anticipacion_minimas', '1', 'Horas mínimas de anticipación para comprar entradas', 'number', 'sistema'),
+('dias_anticipacion_maximos', '7', 'Días máximos de anticipación para comprar entradas', 'number', 'sistema');
 
 
 -- ====================================================================

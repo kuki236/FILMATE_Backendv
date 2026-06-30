@@ -34,6 +34,7 @@ class SeatMapResponse(BaseModel):
 
 
 class SeatLockRequest(BaseModel):
+    id_usuario: int
     id_funcion: int
     ids_asientos: List[int]
 

@@ -28,7 +28,7 @@ def get_seat_map(showtime_id: int, db: Annotated[Session, Depends(get_db)]):
 def lock_seats(payload: SeatLockRequest, db: Annotated[Session, Depends(get_db)]):
     logger.info("POST /seats/lock - funcion=%s asientos=%s", payload.id_funcion, payload.ids_asientos)
     try:
-        result = lock_showtime_seats(db, payload.id_funcion, payload.ids_asientos)
+        result = lock_showtime_seats(db, payload.id_usuario, payload.id_funcion, payload.ids_asientos)
         return SeatLockResponse(**result)
     except HTTPException:
         raise

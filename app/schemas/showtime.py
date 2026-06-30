@@ -38,6 +38,10 @@ class ShowtimeAvailabilityItem(BaseModel):
     titulo_pelicula: str
     id_sala: int
     nombre_sala: str
+    tipo_sala: str
+    tipo_formato: str
+    id_cine: int
+    nombre_cine: str
     fecha_hora: datetime
     precio_base: float
     asientos_totales: int

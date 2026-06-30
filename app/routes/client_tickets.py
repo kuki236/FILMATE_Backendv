@@ -27,10 +27,25 @@ def _get_ticket_bundle(db: Session, transaction_id: int):
     funcion = db.query(Funcion).filter(Funcion.id_funcion == transaccion.id_funcion).first()
     if not funcion:
         raise HTTPException(status_code=404, detail="Función no encontrada")
-    tickets = db.query(BoletaTicket).filter(BoletaTicket.id_transaccion == transaction_id).all()
-    detalle_asientos = db.query(DetalleBoletaAsiento).filter(DetalleBoletaAsiento.id_transaccion == transaction_id).all()
+
+    # tickets y detalle_asientos se crean en el mismo orden durante el checkout (un ticket
+    # por asiento, en el mismo loop); ordenarlos por su propia PK preserva ese emparejamiento
+    # al volver a consultarlos por separado más tarde (no hay FK directa ticket->asiento).
+    tickets = (
+        db.query(BoletaTicket)
+        .filter(BoletaTicket.id_transaccion == transaction_id)
+        .order_by(BoletaTicket.id_ticket)
+        .all()
+    )
+    detalle_asientos = (
+        db.query(DetalleBoletaAsiento)
+        .filter(DetalleBoletaAsiento.id_transaccion == transaction_id)
+        .order_by(DetalleBoletaAsiento.id_detalle_asiento)
+        .all()
+    )
     seat_ids = [d.id_asiento for d in detalle_asientos]
-    seats = db.query(Asiento).filter(Asiento.id_asiento.in_(seat_ids)).all()
+    seats_by_id = {s.id_asiento: s for s in db.query(Asiento).filter(Asiento.id_asiento.in_(seat_ids)).all()} if seat_ids else {}
+    seats = [seats_by_id.get(d.id_asiento) for d in detalle_asientos]
     return transaccion, funcion, tickets, seats
 
 @router.post("/issue", response_model=CheckoutResponse, responses={500: {"description": "Internal server error"}})
@@ -70,8 +85,7 @@ def download_ticket_pdf(transaction_id: int, db: Annotated[Session, Depends(get_
     logger.info("GET /client/tickets/transaction/%s/pdf", transaction_id)
     try:
         transaccion, funcion, tickets, seats = _get_ticket_bundle(db, transaction_id)
-        qr_payload = build_ticket_qr_payload(transaccion, funcion, seats, tickets)
-        bundle = {"transaccion": transaccion, "funcion": funcion, "tickets": tickets, "seats": seats, "qr_payload": qr_payload}
+        bundle = {"transaccion": transaccion, "funcion": funcion, "tickets": tickets, "seats": seats}
         pdf_bytes = build_ticket_pdf(bundle)
         filename = f"ticket_transaccion_{transaction_id}.pdf"
         return StreamingResponse(BytesIO(pdf_bytes), media_type="application/pdf",

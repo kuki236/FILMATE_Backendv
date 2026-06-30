@@ -1,5 +1,5 @@
 import logging
-from typing import Annotated, List
+from typing import Annotated, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -9,14 +9,29 @@ from app.core.dependencies import get_db
 from app.models.review import Resena
 from app.models.movie import Pelicula
 from app.repositories import review_repository
-from app.schemas.review import ReviewCreate, ReviewUpdate, ReviewResponse
+from app.schemas.review import (
+    ReviewCreate,
+    ReviewUpdate,
+    ReviewResponse,
+    ReviewWithUserResponse,
+    ReviewWithMovieResponse,
+    ReviewFeedItem,
+    ToggleLikeRequest,
+    ReviewLikeResponse,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/client/reviews", tags=["client reviews"])
 
-@router.get("/user/{user_id}", response_model=List[ReviewResponse])
+@router.get("/user/{user_id}", response_model=List[ReviewWithMovieResponse])
 def list_user_reviews(user_id: int, db: Annotated[Session, Depends(get_db)]):
     return review_repository.list_reviews_by_user(db, user_id)
+
+
+@router.get("/following/{user_id}", response_model=List[ReviewFeedItem])
+def list_following_reviews(user_id: int, db: Annotated[Session, Depends(get_db)]):
+    """Reseñas de las cuentas que el usuario sigue (HU-SOC-11)."""
+    return review_repository.list_reviews_by_following(db, user_id)
 
 
 @router.post("/", response_model=ReviewResponse, status_code=201)
@@ -29,9 +44,17 @@ def create_review(payload: ReviewCreate, db: Annotated[Session, Depends(get_db)]
     )
     return review_repository.create_review(db, review)
 
-@router.get("/movie/{movie_id}", response_model=List[ReviewResponse])
-def list_reviews_for_movie(movie_id: int, db: Annotated[Session, Depends(get_db)]):
-    return review_repository.list_reviews_for_movie(db, movie_id)
+@router.get("/movie/{movie_id}", response_model=List[ReviewWithUserResponse])
+def list_reviews_for_movie(movie_id: int, db: Annotated[Session, Depends(get_db)], viewer_id: Optional[int] = None):
+    return review_repository.list_reviews_for_movie(db, movie_id, viewer_id)
+
+
+@router.post("/{review_id}/toggle-like", response_model=ReviewLikeResponse, responses={404: {"description": "Review not found"}})
+def toggle_review_like(review_id: int, payload: ToggleLikeRequest, db: Annotated[Session, Depends(get_db)]):
+    result = review_repository.toggle_review_like(db, review_id, payload.id_usuario)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Review not found")
+    return result
 
 @router.get("/user/{user_id}/rating-distribution")
 def get_rating_distribution(user_id: int, db: Annotated[Session, Depends(get_db)]):

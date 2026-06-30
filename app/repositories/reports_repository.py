@@ -5,13 +5,17 @@ from sqlalchemy.orm import Session
 
 from app.models.cinema import Cine
 from app.models.detalle_boleta_asiento import DetalleBoletaAsiento
+from app.models.detalle_boleta_confiteria import DetalleBoletaConfiteria
 from app.models.genre import Genero
 from app.models.movie import Pelicula
 from app.models.movie_genre import PeliculaGenero
+
 from app.models.room import Sala
 from app.models.showtime import Funcion
 from app.models.showtime_seat import AsientoFuncion
+from app.models.snack_product import ProductoConfiteria
 from app.models.transaccion import Transaccion
+from app.models.user import Usuario
 
 
 def _get_periodo_fechas(periodo: str, hoy: datetime = None):
@@ -297,3 +301,125 @@ def get_analisis_peliculas_data(db: Session, periodo: str):
             "total_peliculas": total_peliculas,
         },
     }
+
+
+def get_detalle_compras_data(db: Session, periodo: str):
+    hoy = datetime.now()
+    inicio, fin = _get_periodo_fechas(periodo, hoy)
+
+    query = (
+        db.query(
+            Transaccion.id_transaccion,
+            Usuario.nombre.label("cliente"),
+            Pelicula.titulo.label("pelicula"),
+            Sala.nombre_sala.label("sala"),
+            func.count(func.distinct(DetalleBoletaAsiento.id_detalle_asiento)).label("boletos"),
+            func.coalesce(func.sum(Transaccion.monto_total), 0).label("total"),
+            Transaccion.fecha_transaccion.label("fecha"),
+            Transaccion.estado_pago.label("estado"),
+        )
+        .join(Usuario, Usuario.id_usuario == Transaccion.id_usuario)
+        .join(Funcion, Funcion.id_funcion == Transaccion.id_funcion)
+        .join(Pelicula, Pelicula.id_pelicula == Funcion.id_pelicula)
+        .join(Sala, Sala.id_sala == Funcion.id_sala)
+        .outerjoin(DetalleBoletaAsiento, DetalleBoletaAsiento.id_transaccion == Transaccion.id_transaccion)
+        .filter(Transaccion.estado_pago == "Aprobado")
+    )
+    query = _filter_fecha_range(query, Transaccion.fecha_transaccion, inicio, fin)
+    rows = query.group_by(Transaccion.id_transaccion, Usuario.nombre, Pelicula.titulo,
+                          Sala.nombre_sala, Transaccion.fecha_transaccion, Transaccion.estado_pago
+                  ).order_by(Transaccion.fecha_transaccion.desc()).all()
+
+    data = []
+    total_boletos = 0
+    total_snacks = 0
+    for r in rows:
+        snacks = (
+            db.query(
+                func.concat(ProductoConfiteria.nombre_producto, " x", DetalleBoletaConfiteria.cantidad)
+            )
+            .select_from(DetalleBoletaConfiteria)
+            .join(ProductoConfiteria, ProductoConfiteria.id_producto == DetalleBoletaConfiteria.id_producto)
+            .filter(DetalleBoletaConfiteria.id_transaccion == r.id_transaccion)
+            .all()
+        )
+        snacks_str = ", ".join(s[0] for s in snacks) if snacks else ""
+        items_count = (
+            db.query(func.sum(DetalleBoletaConfiteria.cantidad))
+            .filter(DetalleBoletaConfiteria.id_transaccion == r.id_transaccion)
+            .scalar() or 0
+        )
+        total_boletos += r.boletos
+        total_snacks += items_count
+        data.append({
+            "id_transaccion": r.id_transaccion,
+            "cliente": r.cliente,
+            "pelicula": r.pelicula,
+            "sala": r.sala,
+            "boletos": r.boletos,
+            "confiteria": snacks_str,
+            "total": float(r.total),
+            "fecha": r.fecha.isoformat() if r.fecha else None,
+            "estado": r.estado,
+        })
+
+    return {
+        "data": data,
+        "resumen": {
+            "total_transacciones": len(data),
+            "total_ingresos": round(sum(d["total"] for d in data), 2),
+            "total_boletos": total_boletos,
+            "total_snacks": total_snacks,
+        },
+    }
+
+
+def get_reporte_contador(db: Session):
+    from app.models.configuracion_sistema import ConfiguracionSistema
+    import json
+    row = db.query(ConfiguracionSistema).filter(
+        ConfiguracionSistema.clave == 'reportes_contador'
+    ).first()
+    if not row:
+        valor = json.dumps({"count": 0, "ultima_generacion": None})
+        row = ConfiguracionSistema(
+            clave='reportes_contador',
+            valor=valor,
+            descripcion='Contador de reportes generados',
+            tipo_dato='json',
+            categoria='sistema'
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+    data = json.loads(row.valor)
+    return type('obj', (object,), {
+        'count': data['count'],
+        'ultima_generacion': data['ultima_generacion']
+    })()
+
+
+def incrementar_reporte_contador(db: Session):
+    from app.models.configuracion_sistema import ConfiguracionSistema
+    import json
+    from datetime import datetime
+    row = db.query(ConfiguracionSistema).filter(
+        ConfiguracionSistema.clave == 'reportes_contador'
+    ).first()
+    data = json.loads(row.valor) if row else {"count": 0, "ultima_generacion": None}
+    data['count'] += 1
+    data['ultima_generacion'] = datetime.now().isoformat()
+    if not row:
+        row = ConfiguracionSistema(
+            clave='reportes_contador', valor=json.dumps(data),
+            descripcion='Contador de reportes generados', tipo_dato='json',
+            categoria='sistema'
+        )
+        db.add(row)
+    else:
+        row.valor = json.dumps(data)
+    db.commit()
+    db.refresh(row)
+    return {"count": data['count'], "ultima_generacion": data['ultima_generacion']}
+
+

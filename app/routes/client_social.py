@@ -13,7 +13,6 @@ from app.schemas.historial_actividad import HistorialActividadResponse
 from app.models.user import Usuario
 from app.models.review import Resena
 from app.models.movie import Pelicula
-from app.models.interaccion_pelicula import InteraccionPelicula
 
 # Intentamos importar Seguidor (ajusta el nombre si en tu proyecto se llama distinto, ej. 'seguidores')
 try:
@@ -22,11 +21,57 @@ except ImportError:
     Seguidor = None
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/client/actividad", tags=["client actividad"])
+router = APIRouter(prefix="/client/social", tags=["client social"])
+
+TOP_FAVORITO_EVENT = "TOP_FAVORITO"
 
 # Schema para recibir la bio
 class ProfileUpdate(BaseModel):
     bio: str
+
+
+def _enrich_activities(db: Session, eventos: List[HistorialActividad]) -> List[dict]:
+    """Resuelve usernames/títulos para que el front pueda armar frases como
+    'Kuki236 followed LuisBizagui69' sin tener que pedir cada nombre por separado."""
+    actor_ids = {e.id_usuario for e in eventos}
+    ref_user_ids = {e.id_referencia_usuario for e in eventos if e.id_referencia_usuario}
+    ref_movie_ids = {e.id_referencia_pelicula for e in eventos if e.id_referencia_pelicula}
+
+    all_user_ids = actor_ids | ref_user_ids
+    usuarios_by_id = (
+        {u.id_usuario: u for u in db.query(Usuario).filter(Usuario.id_usuario.in_(all_user_ids)).all()}
+        if all_user_ids
+        else {}
+    )
+    peliculas_by_id = (
+        {p.id_pelicula: p for p in db.query(Pelicula).filter(Pelicula.id_pelicula.in_(ref_movie_ids)).all()}
+        if ref_movie_ids
+        else {}
+    )
+
+    resultado = []
+    for evento in eventos:
+        actor = usuarios_by_id.get(evento.id_usuario)
+        referencia_usuario = usuarios_by_id.get(evento.id_referencia_usuario) if evento.id_referencia_usuario else None
+        referencia_pelicula = peliculas_by_id.get(evento.id_referencia_pelicula) if evento.id_referencia_pelicula else None
+        resultado.append(
+            {
+                "id_actividad": evento.id_actividad,
+                "id_usuario": evento.id_usuario,
+                "username": actor.username if actor else None,
+                "url_perfil": actor.url_perfil if actor else None,
+                "tipo_evento": evento.tipo_evento,
+                "id_referencia_usuario": evento.id_referencia_usuario,
+                "referencia_username": referencia_usuario.username if referencia_usuario else None,
+                "id_referencia_pelicula": evento.id_referencia_pelicula,
+                "referencia_pelicula_titulo": referencia_pelicula.titulo if referencia_pelicula else None,
+                "id_referencia_resena": evento.id_referencia_resena,
+                "texto_breve": evento.texto_breve,
+                "fecha_evento": evento.fecha_evento,
+            }
+        )
+    return resultado
+
 
 @router.delete("/{activity_id}", responses={404: {"description": "Evento no encontrado"}})
 def delete_activity(activity_id: int, db: Annotated[Session, Depends(get_db)]):
@@ -40,17 +85,41 @@ def delete_activity(activity_id: int, db: Annotated[Session, Depends(get_db)]):
 
 @router.get("/feed", response_model=List[HistorialActividadResponse])
 def get_feed(db: Annotated[Session, Depends(get_db)]):
-    return db.query(HistorialActividad).order_by(HistorialActividad.fecha_evento.desc()).limit(50).all()
+    eventos = db.query(HistorialActividad).order_by(HistorialActividad.fecha_evento.desc()).limit(50).all()
+    return _enrich_activities(db, eventos)
 
-@router.get("/usuario/{user_id}", response_model=List[HistorialActividadResponse])
+@router.get("/activity/{user_id}", response_model=List[HistorialActividadResponse])
 def get_user_activity(user_id: int, db: Annotated[Session, Depends(get_db)]):
-    return (
+    eventos = (
         db.query(HistorialActividad)
         .filter(HistorialActividad.id_usuario == user_id)
         .order_by(HistorialActividad.fecha_evento.desc())
         .limit(50)
         .all()
     )
+    return _enrich_activities(db, eventos)
+
+
+@router.get("/following-activity/{user_id}", response_model=List[HistorialActividadResponse])
+def get_following_activity(user_id: int, db: Annotated[Session, Depends(get_db)]):
+    """Feed de actividad solo de las cuentas que el usuario sigue (HU-SOC-11)."""
+    if not Seguidor:
+        return []
+
+    seguido_ids = [
+        row[0] for row in db.query(Seguidor.id_seguido).filter(Seguidor.id_seguidor == user_id).all()
+    ]
+    if not seguido_ids:
+        return []
+
+    eventos = (
+        db.query(HistorialActividad)
+        .filter(HistorialActividad.id_usuario.in_(seguido_ids))
+        .order_by(HistorialActividad.fecha_evento.desc())
+        .limit(50)
+        .all()
+    )
+    return _enrich_activities(db, eventos)
 
 @router.put("/profile/{user_id}", responses={404: {"description": "Usuario no encontrado"}})
 def update_profile(user_id: int, payload: ProfileUpdate, db: Annotated[Session, Depends(get_db)]):
@@ -92,15 +161,19 @@ def get_social_summary(user_id: int, db: Annotated[Session, Depends(get_db)]):
         seguidores_count = db.query(Seguidor).filter(Seguidor.id_seguido == user_id).count()
         siguiendo_count = db.query(Seguidor).filter(Seguidor.id_seguidor == user_id).count()
     
-    # Extraemos el Top 5 respetando el orden artificial de fechas
-    top_movies = (
-        db.query(Pelicula)
-        .join(InteraccionPelicula, Pelicula.id_pelicula == InteraccionPelicula.id_pelicula)
-        .filter(InteraccionPelicula.id_usuario == user_id, InteraccionPelicula.favorita == True)
-        .order_by(InteraccionPelicula.fecha_favorito.desc())
-        .limit(5)
+    # Top 5 destacadas: viven en historial_actividad (TOP_FAVORITO), separadas de la lista
+    # completa de favoritas (InteraccionPelicula.favorita), en el orden en que se eligieron.
+    top_movie_ids = [
+        row[0]
+        for row in db.query(HistorialActividad.id_referencia_pelicula)
+        .filter(HistorialActividad.id_usuario == user_id, HistorialActividad.tipo_evento == TOP_FAVORITO_EVENT)
+        .order_by(HistorialActividad.id_actividad.asc())
         .all()
-    )
+    ]
+    movies_by_id = {
+        p.id_pelicula: p for p in db.query(Pelicula).filter(Pelicula.id_pelicula.in_(top_movie_ids)).all()
+    } if top_movie_ids else {}
+    top_movies = [movies_by_id[mid] for mid in top_movie_ids if mid in movies_by_id]
     
     return {
         "usuario": {
