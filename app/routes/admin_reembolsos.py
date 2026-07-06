@@ -1,11 +1,12 @@
 import logging
 from typing import Annotated, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_db, require_permiso
 from app.repositories import reembolso_repository
+from app.models.log_actividad_sistema import LogActividadSistema
 from app.schemas.solicitud_reembolso import SolicitudReembolsoCreate, SolicitudReembolsoResponse, SolicitudReembolsoUpdate
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,7 @@ def get_solicitud(
 
 @router.put("/{solicitud_id}", response_model=SolicitudReembolsoResponse, responses={404: {"description": "Solicitud no encontrada"}})
 def resolve_solicitud(
+    request: Request,
     solicitud_id: int, payload: SolicitudReembolsoUpdate, db: Annotated[Session, Depends(get_db)],
     _permiso: Annotated[dict, Depends(require_permiso("GESTIONAR_REEMBOLSOS"))],
 ):
@@ -55,11 +57,19 @@ def resolve_solicitud(
     )
     if not solicitud:
         raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+    db.add(LogActividadSistema(
+        id_usuario=_permiso.get("user_id"),
+        accion_realizada=f"Reembolso {solicitud_id} resuelto: {payload.estado_solicitud}",
+        modulo_afectado="REEMBOLSOS",
+        ip_origen=request.client.host if request.client else "0.0.0.0",
+    ))
+    db.commit()
     return solicitud
 
 
 @router.post("/", response_model=SolicitudReembolsoResponse, status_code=201)
 def create_solicitud_admin(
+    request: Request,
     payload: SolicitudReembolsoCreate, db: Annotated[Session, Depends(get_db)],
     _permiso: Annotated[dict, Depends(require_permiso("GESTIONAR_REEMBOLSOS"))],
 ):
@@ -69,4 +79,11 @@ def create_solicitud_admin(
     )
     if not solicitud:
         raise HTTPException(status_code=400, detail="No se pudo crear la solicitud")
+    db.add(LogActividadSistema(
+        id_usuario=_permiso.get("user_id"),
+        accion_realizada=f"Solicitud de reembolso creada: ID {solicitud.id_solicitud}",
+        modulo_afectado="REEMBOLSOS",
+        ip_origen=request.client.host if request.client else "0.0.0.0",
+    ))
+    db.commit()
     return solicitud

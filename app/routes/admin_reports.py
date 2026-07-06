@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -248,6 +248,7 @@ def reportes_generados(
 
 @router.post("/generar")
 def generar_reporte(
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
     _permiso: Annotated[dict, Depends(require_permiso("VER_REPORTES"))],
     _admin: Annotated[dict, Depends(get_current_admin)],
@@ -255,8 +256,9 @@ def generar_reporte(
     log = LogActividadSistema(
         id_usuario=_admin["user_id"],
         accion_realizada="Reporte generado",
-        modulo_afectado="reportes",
-        ip_origen="0.0.0.0"
+        modulo_afectado="REPORTES",
+        ip_origen=request.client.host if request.client else "0.0.0.0",
     )
     db.add(log)
+    db.commit()
     return reports_repository.incrementar_reporte_contador(db)

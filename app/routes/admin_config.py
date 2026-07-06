@@ -2,10 +2,11 @@ import json
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_db, require_permiso
+from app.core.dependencies import get_current_admin, get_db, require_permiso
+from app.models.log_actividad_sistema import LogActividadSistema
 from app.models.configuracion_sistema import ConfiguracionSistema
 from app.models.snack_product import ProductoConfiteria
 from app.schemas.configuracion import (
@@ -44,6 +45,7 @@ def get_precios_formato(
 
 @router.put("/precios-formato", response_model=PreciosFormatoResponse)
 def update_precios_formato(
+    request: Request,
     payload: PreciosFormatoRequest,
     db: Annotated[Session, Depends(get_db)],
     _permiso: Annotated[dict, Depends(require_permiso("GESTIONAR_CONFIGURACION"))],
@@ -53,6 +55,13 @@ def update_precios_formato(
     cfg.valor = json.dumps(obj, ensure_ascii=False)
     db.commit()
     db.refresh(cfg)
+    db.add(LogActividadSistema(
+        id_usuario=_permiso.get("user_id"),
+        accion_realizada="Precios por formato actualizados",
+        modulo_afectado="CONFIGURACION",
+        ip_origen=request.client.host if request.client else "0.0.0.0",
+    ))
+    db.commit()
     return {"precios": payload.precios}
 
 
@@ -68,6 +77,7 @@ def get_precios_sala_formato(
 
 @router.put("/precios-sala-formato", response_model=PreciosSalaFormatoResponse)
 def update_precios_sala_formato(
+    request: Request,
     payload: PreciosSalaFormatoRequest,
     db: Annotated[Session, Depends(get_db)],
     _admin: Annotated[dict, Depends(get_current_admin)],
@@ -76,6 +86,13 @@ def update_precios_sala_formato(
     cfg.valor = json.dumps([p.model_dump() for p in payload.precios], ensure_ascii=False)
     db.commit()
     db.refresh(cfg)
+    db.add(LogActividadSistema(
+        id_usuario=_admin.get("user_id"),
+        accion_realizada="Precios por sala-formato actualizados",
+        modulo_afectado="CONFIGURACION",
+        ip_origen=request.client.host if request.client else "0.0.0.0",
+    ))
+    db.commit()
     return {"precios": payload.precios}
 
 
@@ -91,6 +108,7 @@ def get_tipos_entrada(
 
 @router.put("/tipos-entrada", response_model=TiposEntradaResponse)
 def update_tipos_entrada(
+    request: Request,
     payload: TiposEntradaRequest,
     db: Annotated[Session, Depends(get_db)],
     _permiso: Annotated[dict, Depends(require_permiso("GESTIONAR_CONFIGURACION"))],
@@ -99,6 +117,13 @@ def update_tipos_entrada(
     cfg.valor = json.dumps([t.model_dump() for t in payload.tipos], ensure_ascii=False)
     db.commit()
     db.refresh(cfg)
+    db.add(LogActividadSistema(
+        id_usuario=_permiso.get("user_id"),
+        accion_realizada="Tipos de entrada actualizados",
+        modulo_afectado="CONFIGURACION",
+        ip_origen=request.client.host if request.client else "0.0.0.0",
+    ))
+    db.commit()
     return {"tipos": payload.tipos}
 
 
@@ -117,6 +142,7 @@ def list_confiteria(
 
 @router.post("/confiteria", response_model=ConfiteriaProductoItem, status_code=201)
 def create_confiteria(
+    request: Request,
     payload: ConfiteriaCreateRequest,
     db: Annotated[Session, Depends(get_db)],
     _permiso: Annotated[dict, Depends(require_permiso("GESTIONAR_CONFIGURACION"))],
@@ -129,11 +155,19 @@ def create_confiteria(
     db.add(producto)
     db.commit()
     db.refresh(producto)
+    db.add(LogActividadSistema(
+        id_usuario=_permiso.get("user_id"),
+        accion_realizada=f"Producto creado: {producto.nombre_producto}",
+        modulo_afectado="CONFIGURACION",
+        ip_origen=request.client.host if request.client else "0.0.0.0",
+    ))
+    db.commit()
     return ConfiteriaProductoItem(id=producto.id_producto, nombre=producto.nombre_producto, precio=float(producto.precio))
 
 
 @router.put("/confiteria/{producto_id}", response_model=ConfiteriaProductoItem)
 def update_confiteria(
+    request: Request,
     producto_id: int,
     payload: ConfiteriaUpdateRequest,
     db: Annotated[Session, Depends(get_db)],
@@ -148,11 +182,19 @@ def update_confiteria(
         producto.precio = payload.precio
     db.commit()
     db.refresh(producto)
+    db.add(LogActividadSistema(
+        id_usuario=_permiso.get("user_id"),
+        accion_realizada=f"Producto editado: {producto_id}",
+        modulo_afectado="CONFIGURACION",
+        ip_origen=request.client.host if request.client else "0.0.0.0",
+    ))
+    db.commit()
     return ConfiteriaProductoItem(id=producto.id_producto, nombre=producto.nombre_producto, precio=float(producto.precio))
 
 
 @router.delete("/confiteria/{producto_id}")
 def delete_confiteria(
+    request: Request,
     producto_id: int,
     db: Annotated[Session, Depends(get_db)],
     _permiso: Annotated[dict, Depends(require_permiso("GESTIONAR_CONFIGURACION"))],
@@ -161,6 +203,13 @@ def delete_confiteria(
     if not producto:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
     db.delete(producto)
+    db.commit()
+    db.add(LogActividadSistema(
+        id_usuario=_permiso.get("user_id"),
+        accion_realizada=f"Producto eliminado: {producto_id}",
+        modulo_afectado="CONFIGURACION",
+        ip_origen=request.client.host if request.client else "0.0.0.0",
+    ))
     db.commit()
     return {"message": "Producto eliminado"}
 
@@ -185,6 +234,7 @@ def list_params(
 
 @router.put("/params/{clave}", response_model=ParametroSistemaItem)
 def update_param(
+    request: Request,
     clave: str,
     payload: ParametroUpdateRequest,
     db: Annotated[Session, Depends(get_db)],
@@ -194,6 +244,13 @@ def update_param(
     cfg.valor = payload.valor
     db.commit()
     db.refresh(cfg)
+    db.add(LogActividadSistema(
+        id_usuario=_permiso.get("user_id"),
+        accion_realizada=f"Parámetro {clave} actualizado",
+        modulo_afectado="CONFIGURACION",
+        ip_origen=request.client.host if request.client else "0.0.0.0",
+    ))
+    db.commit()
     return ParametroSistemaItem(
         clave=cfg.clave, valor=cfg.valor, descripcion=cfg.descripcion,
         tipo_dato=cfg.tipo_dato, categoria=cfg.categoria, activo=cfg.activo

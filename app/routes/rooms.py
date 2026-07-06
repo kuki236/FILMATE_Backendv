@@ -1,11 +1,12 @@
 import logging
 from typing import Annotated, List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_db, require_permiso
 from app.models.room import Sala
+from app.models.log_actividad_sistema import LogActividadSistema
 from app.repositories import room_repository
 from app.schemas.room import RoomCreate, RoomResponse, RoomUpdate
 
@@ -35,15 +36,25 @@ def get_room(
 
 @router.post("/", response_model=RoomResponse, status_code=201)
 def create_room(
+    request: Request,
     payload: RoomCreate, db: Annotated[Session, Depends(get_db)],
     _permiso: Annotated[dict, Depends(require_permiso("GESTIONAR_SALAS"))],
 ):
     room = Sala(**payload.model_dump())
-    return room_repository.create_room(db, room)
+    result = room_repository.create_room(db, room)
+    db.add(LogActividadSistema(
+        id_usuario=_permiso.get("user_id"),
+        accion_realizada=f"Sala creada: {room.nombre_sala}",
+        modulo_afectado="SALAS",
+        ip_origen=request.client.host if request.client else "0.0.0.0",
+    ))
+    db.commit()
+    return result
 
 
 @router.put("/{room_id}", response_model=RoomResponse, responses={404: {"description": "Sala no encontrada"}})
 def update_room(
+    request: Request,
     room_id: int, payload: RoomUpdate, db: Annotated[Session, Depends(get_db)],
     _permiso: Annotated[dict, Depends(require_permiso("GESTIONAR_SALAS"))],
 ):
@@ -52,11 +63,20 @@ def update_room(
         raise HTTPException(status_code=404, detail=NOT_FOUND)
     for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(room, key, value)
-    return room_repository.update_room(db, room)
+    result = room_repository.update_room(db, room)
+    db.add(LogActividadSistema(
+        id_usuario=_permiso.get("user_id"),
+        accion_realizada=f"Sala editada: {room_id}",
+        modulo_afectado="SALAS",
+        ip_origen=request.client.host if request.client else "0.0.0.0",
+    ))
+    db.commit()
+    return result
 
 
 @router.delete("/{room_id}", responses={404: {"description": "Sala no encontrada"}})
 def delete_room(
+    request: Request,
     room_id: int, db: Annotated[Session, Depends(get_db)],
     _permiso: Annotated[dict, Depends(require_permiso("GESTIONAR_SALAS"))],
 ):
@@ -66,5 +86,12 @@ def delete_room(
     room.eliminado = True
     from datetime import datetime
     room.fecha_eliminacion = datetime.now()
+    db.commit()
+    db.add(LogActividadSistema(
+        id_usuario=_permiso.get("user_id"),
+        accion_realizada=f"Sala eliminada: {room_id}",
+        modulo_afectado="SALAS",
+        ip_origen=request.client.host if request.client else "0.0.0.0",
+    ))
     db.commit()
     return {"message": "Sala eliminada"}

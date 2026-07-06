@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from typing import Annotated, List
 import logging
 
 from app.core.dependencies import get_db, require_permiso
 from app.models.genre import Genero
+from app.models.log_actividad_sistema import LogActividadSistema
 from app.models.movie import Pelicula
 from app.schemas.movie import (
     MovieCreate, MovieResponse, MovieUpdate,
@@ -28,6 +29,7 @@ def admin_list_movies(
 
 @router.post("/", response_model=MovieResponse, responses={500: {"description": "Internal server error"}})
 def create_movie(
+    request: Request,
     payload: MovieCreate,
     db: Annotated[Session, Depends(get_db)],
     _permiso: Annotated[dict, Depends(require_permiso("GESTIONAR_PELICULAS"))],
@@ -61,6 +63,15 @@ def create_movie(
         for genero_id in payload.generos:
             db.add(PeliculaGenero(id_pelicula=movie.id_pelicula, id_genero=genero_id))
         db.commit()
+
+        db.add(LogActividadSistema(
+            id_usuario=_permiso.get("user_id"),
+            accion_realizada=f"Película creada: {movie.titulo}",
+            modulo_afectado="PELICULAS",
+            ip_origen=request.client.host if request.client else "0.0.0.0",
+        ))
+        db.commit()
+
         return movie
     except HTTPException:
         raise
@@ -72,6 +83,7 @@ def create_movie(
 
 @router.put("/{movie_id}", response_model=MovieResponse, responses={404: {"description": "Movie not found"}})
 def update_movie(
+    request: Request,
     movie_id: int, payload: MovieUpdate, db: Annotated[Session, Depends(get_db)],
     _permiso: Annotated[dict, Depends(require_permiso("GESTIONAR_PELICULAS"))],
 ):
@@ -79,17 +91,32 @@ def update_movie(
     updated = movie_repository.update_movie(db, movie_id, data)
     if not updated:
         raise HTTPException(status_code=404, detail="Movie not found")
+    db.add(LogActividadSistema(
+        id_usuario=_permiso.get("user_id"),
+        accion_realizada=f"Película editada: {movie_id}",
+        modulo_afectado="PELICULAS",
+        ip_origen=request.client.host if request.client else "0.0.0.0",
+    ))
+    db.commit()
     return updated
 
 
 @router.delete("/{movie_id}", responses={404: {"description": "Movie not found"}})
 def delete_movie(
+    request: Request,
     movie_id: int, db: Annotated[Session, Depends(get_db)],
     _permiso: Annotated[dict, Depends(require_permiso("GESTIONAR_PELICULAS"))],
 ):
     result = movie_repository.soft_delete_movie(db, movie_id)
     if not result:
         raise HTTPException(status_code=404, detail="Movie not found")
+    db.add(LogActividadSistema(
+        id_usuario=_permiso.get("user_id"),
+        accion_realizada=f"Película eliminada: {movie_id}",
+        modulo_afectado="PELICULAS",
+        ip_origen=request.client.host if request.client else "0.0.0.0",
+    ))
+    db.commit()
     return {"message": "Movie deactivated successfully"}
 
 
@@ -157,6 +184,7 @@ def tmdb_preview(
 
 @router.post("/tmdb/{tmdb_id}", response_model=MovieResponse, responses={409: {"description": "Duplicate movie"}})
 def create_movie_from_tmdb(
+    request: Request,
     tmdb_id: int,
     payload: TMDBMovieCreate,
     db: Annotated[Session, Depends(get_db)],
@@ -196,6 +224,14 @@ def create_movie_from_tmdb(
         genre_ids = map_tmdb_genres_to_local(preview.get("tmdb_genres", []), genres)
         for gid in genre_ids:
             db.add(PeliculaGenero(id_pelicula=movie.id_pelicula, id_genero=gid))
+        db.commit()
+
+        db.add(LogActividadSistema(
+            id_usuario=_permiso.get("user_id"),
+            accion_realizada=f"Película creada desde TMDB: {movie.titulo}",
+            modulo_afectado="PELICULAS",
+            ip_origen=request.client.host if request.client else "0.0.0.0",
+        ))
         db.commit()
 
         return movie
