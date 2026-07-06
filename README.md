@@ -265,47 +265,161 @@ Superficie principal de la API para la app de usuario final. Ninguna de estas ru
 
 ### Administración (prefijo `/admin/`)
 
+**Usuarios** (`admin_users.py`)
+
 | Ruta | Método | Descripción |
 |---|---|---|
-| `/admin/movies/` | GET | Listar películas (admin) |
+| `/admin/users/` | GET | Listar usuarios |
+| `/admin/users/` | POST | Crear usuario |
+| `/admin/users/{id}` | PUT | Editar usuario |
+| `/admin/users/{id}/status` | PUT | Cambiar estado del usuario |
+| `/admin/users/{id}` | DELETE | Eliminar usuario |
+| `/admin/users/{id}/roles` | GET | Ver roles del usuario |
+| `/admin/users/{id}/roles` | PUT | Asignar roles al usuario |
+| `/admin/users/{id}/password` | PUT | Cambiar contraseña del usuario |
+
+**Roles** (`roles.py`)
+
+| Ruta | Método | Descripción |
+|---|---|---|
+| `/admin/roles/` | GET | Listar roles |
+| `/admin/roles/` | POST | Crear rol |
+| `/admin/roles/{id}` | GET | Ver rol con permisos |
+| `/admin/roles/{id}` | PUT | Editar rol |
+| `/admin/roles/{id}` | DELETE | Eliminar rol |
+| `/admin/roles/{id}/permisos` | GET | Ver permisos del rol |
+| `/admin/roles/{id}/permisos` | PUT | Asignar permisos al rol |
+
+**Permisos** (`permisos.py`)
+
+| Ruta | Método | Descripción |
+|---|---|---|
+| `/admin/permisos/` | GET | Listar permisos |
+| `/admin/permisos/` | POST | Crear permiso |
+| `/admin/permisos/{id}` | DELETE | Eliminar permiso |
+
+**Películas** (`admin_movies.py`)
+
+| Ruta | Método | Descripción |
+|---|---|---|
+| `/admin/movies/` | GET | Listar películas |
 | `/admin/movies/` | POST | Crear película |
 | `/admin/movies/{id}` | PUT | Actualizar película |
 | `/admin/movies/{id}` | DELETE | Eliminar película (soft) |
 | `/admin/movies/meta/genres` | GET | Listar géneros |
-| `/admin/movies/tmdb/search` | GET | Buscar películas en TMDb |
-| `/admin/movies/tmdb/{id}/preview` | GET | Vista previa con datos de TMDb |
-| `/admin/movies/tmdb/{id}` | POST | Crear película desde TMDb (auto-rellena todo) |
 | `/admin/movies/meta/categories` | GET | Listar categorías |
 | `/admin/movies/meta/classifications` | GET | Listar clasificaciones |
+| `/admin/movies/tmdb/search` | GET | Buscar películas en TMDb |
+| `/admin/movies/tmdb/{id}/preview` | GET | Vista previa desde TMDb |
+| `/admin/movies/tmdb/{id}` | POST | Crear película desde TMDb |
+
+**Cines** (`admin_cinemas.py`)
+
+| Ruta | Método | Descripción |
+|---|---|---|
 | `/admin/cinemas/` | GET | Listar cines |
 | `/admin/cinemas/` | POST | Crear cine |
 | `/admin/cinemas/{id}` | PUT | Actualizar cine |
 | `/admin/cinemas/{id}` | DELETE | Desactivar cine |
+
+**Salas** (`rooms.py`)
+
+| Ruta | Método | Descripción |
+|---|---|---|
 | `/admin/rooms/` | GET | Listar salas |
 | `/admin/rooms/` | POST | Crear sala |
 | `/admin/rooms/{id}` | GET | Detalle de sala |
 | `/admin/rooms/{id}` | PUT | Actualizar sala |
 | `/admin/rooms/{id}` | DELETE | Desactivar sala |
+
+**Funciones** (`admin_showtimes.py`)
+
+| Ruta | Método | Descripción |
+|---|---|---|
 | `/admin/showtimes/` | GET | Listar funciones |
 | `/admin/showtimes/` | POST | Crear función |
 | `/admin/showtimes/{id}` | PUT | Actualizar función |
 | `/admin/showtimes/{id}` | DELETE | Eliminar función |
+
+**Asientos** (`admin_seats.py`)
+
+| Ruta | Método | Descripción |
+|---|---|---|
 | `/admin/seats/room/{id}` | GET | Asientos por sala |
 | `/admin/seats/room/{id}/bulk` | POST | Crear asientos en lote |
 | `/admin/seats/{id}` | PUT | Actualizar asiento |
 | `/admin/seats/{id}` | DELETE | Desactivar asiento |
-| `/admin/users/` | GET | Listar usuarios |
-| `/admin/users/` | POST | Crear usuario |
+
+**Transacciones** (`admin_transactions.py`)
+
+| Ruta | Método | Descripción |
+|---|---|---|
 | `/admin/transactions/` | GET | Transacciones con filtros |
 | `/admin/transactions/{id}` | GET | Detalle de transacción |
 | `/admin/transactions/validate` | POST | Validar ticket QR |
+
+**Reembolsos** (`admin_reembolsos.py`)
+
+| Ruta | Método | Descripción |
+|---|---|---|
 | `/admin/reembolsos/` | GET | Solicitudes de reembolso |
 | `/admin/reembolsos/{id}` | GET | Detalle de solicitud |
 | `/admin/reembolsos/{id}` | PUT | Aprobar/rechazar reembolso |
 | `/admin/reembolsos/metricas` | GET | Métricas de reembolsos |
+
+**Reservas** (`admin_reservas.py`)
+
+| Ruta | Método | Descripción |
+|---|---|---|
 | `/admin/reservations/` | GET | Listado global de transacciones |
-| `/admin/roles/` | GET | Roles del sistema |
-| `/admin/roles/{id}/permisos` | GET | Permisos de un rol |
+
+**Dashboard** (`admin_dashboard.py`)
+
+| Ruta | Método | Descripción |
+|---|---|---|
+| `/admin/dashboard/` | GET | Métricas agregadas del dashboard |
+
+**Reportes** (`admin_reports.py`)
+
+| Ruta | Método | Descripción |
+|---|---|---|
+| `/admin/reports/taquilla` | GET | Reporte de taquilla |
+| `/admin/reports/ocupacion-salas` | GET | Reporte de ocupación de salas |
+| `/admin/reports/ventas-horario` | GET | Reporte de ventas por horario |
+| `/admin/reports/analisis-peliculas` | GET | Reporte de análisis de películas |
+| `/admin/reports/detalle-compras` | GET | Reporte de detalle de compras |
+| `/admin/reports/export/excel` | GET | Exportar reporte a Excel |
+| `/admin/reports/export/csv` | GET | Exportar reporte a CSV |
+| `/admin/reports/generados` | GET | Contador de reportes generados |
+| `/admin/reports/generar` | POST | Incrementar contador de reportes |
+
+**Configuración** (`admin_config.py`)
+
+| Ruta | Método | Descripción |
+|---|---|---|
+| `/admin/config/` | GET | Listar configuraciones |
+| `/admin/config/` | POST | Crear configuración |
+| `/admin/config/{id}` | GET | Obtener configuración |
+| `/admin/config/{id}` | PUT | Actualizar configuración |
+| `/admin/config/{id}` | DELETE | Eliminar configuración |
+| `/admin/config/{clave}` | GET | Obtener configuración por clave |
+| `/admin/config/bulk` | PUT | Actualizar configuraciones en lote |
+| `/admin/config/categoria/{cat}` | GET | Listar por categoría |
+
+**Notificaciones** (`admin_notifications.py`)
+
+| Ruta | Método | Descripción |
+|---|---|---|
+| `/admin/notifications/` | GET | Listar notificaciones no leídas (paginado) |
+| `/admin/notifications/count` | GET | Contar notificaciones no leídas |
+| `/admin/notifications/{id}/read` | PUT | Marcar notificación como leída |
+| `/admin/notifications/read-all` | PUT | Marcar todas como leídas |
+
+**Logs** (`admin_logs.py`)
+
+| Ruta | Método | Descripción |
+|---|---|---|
+| `/admin/logs/` | GET | Logs de actividad con filtros |
 
 ---
 
@@ -342,7 +456,7 @@ Para volver a un proveedor real en el futuro, solo hace falta reemplazar la lóg
 
 ## Base de datos
 
-Esquema en `scripts/DSOOMDAG4v2.3.sql` — 31 tablas con modelos, vistas, triggers y procedimientos almacenados. No hay migraciones (Alembic u otra herramienta): los cambios de esquema se hacen editando este script a mano.
+Esquema en `scripts/DSOOMDAG4v2.3.sql` — 32 tablas con modelos, vistas, triggers y procedimientos almacenados. No hay migraciones (Alembic u otra herramienta): los cambios de esquema se hacen editando este script a mano.
 
 Módulos principales:
 - **Seguridad**: `usuarios`, `roles`, `permisos`, `usuarios_roles`, `roles_permisos`
@@ -354,6 +468,7 @@ Módulos principales:
 - **Comunidad**: `resenas`, `interacciones_peliculas`, `colecciones`, `colecciones_peliculas`, `seguidores`, `historial_actividad`
 - **Reembolsos**: `solicitudes_reembolso`, `detalles_reembolso`
 - **Bloqueos**: `bloqueos_temporales`
+- **Notificaciones**: `notificaciones_admin` (con 5 triggers automáticos para eventos transaccionales)
 
 ---
 
