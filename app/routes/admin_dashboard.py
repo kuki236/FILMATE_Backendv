@@ -16,6 +16,6 @@ router = APIRouter(prefix="/admin/dashboard", tags=["admin dashboard"])
 def get_dashboard(
     db: Annotated[Session, Depends(get_db)],
     _permiso: Annotated[dict, Depends(require_permiso("VER_DASHBOARD"))],
-    periodo: Annotated[str, Query(regex="^(hoy|semana|mes|mes_anterior)$")] = "mes",
+    periodo: Annotated[str, Query(pattern="^(hoy|semana|mes|mes_anterior)$")] = "mes",
 ):
     return dashboard_repository.get_dashboard_data(db, periodo)
