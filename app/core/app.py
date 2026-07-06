@@ -15,6 +15,7 @@ from app.routes import (
     admin_transactions, rooms, admin_reembolsos,
     reservations, admin_reservas, interacciones, roles, admin_dashboard,
     admin_reports, admin_config, permisos, admin_logs,
+    admin_notifications,
 )
 from app.websocket.seats_ws import router as seats_ws_router
 
@@ -43,6 +44,7 @@ tags_metadata = [
     {"name": "admin roles", "description": "Admin: roles y permisos del sistema."},
     {"name": "admin dashboard", "description": "Admin: métricas agregadas del dashboard."},
     {"name": "admin reports", "description": "Admin: reportes de taquilla, ocupación, ventas y análisis."},
+    {"name": "admin notifications", "description": "Admin: notificaciones del sistema."},
 ]
 
 
@@ -102,6 +104,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_config.router)
     app.include_router(admin_logs.router)
     app.include_router(permisos.router)
+    app.include_router(admin_notifications.router)
 
     @app.get("/", summary="Estado del servicio")
     def root():

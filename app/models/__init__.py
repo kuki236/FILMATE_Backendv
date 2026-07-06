@@ -30,3 +30,4 @@ from .solicitud_reembolso import SolicitudReembolso
 from .log_validacion_qr import LogValidacionQr
 from .log_actividad_sistema import LogActividadSistema
 from .configuracion_sistema import ConfiguracionSistema
+from .notificacion_admin import NotificacionAdmin
