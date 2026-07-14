@@ -1,0 +1,37 @@
+SET FOREIGN_KEY_CHECKS = 0;
+
+DROP TABLE IF EXISTS notificaciones_admin;
+DROP TABLE IF EXISTS log_actividad_sistema;
+DROP TABLE IF EXISTS log_validaciones_qr;
+DROP TABLE IF EXISTS detalle_boleta_asientos;
+DROP TABLE IF EXISTS detalle_boleta_confiteria;
+DROP TABLE IF EXISTS boletas_tickets;
+DROP TABLE IF EXISTS solicitudes_reembolso;
+DROP TABLE IF EXISTS transacciones;
+DROP TABLE IF EXISTS carrito_confiteria;
+DROP TABLE IF EXISTS productos_confiteria;
+DROP TABLE IF EXISTS categorias_confiteria;
+DROP TABLE IF EXISTS bloqueos_temporales;
+DROP TABLE IF EXISTS asientos_funciones;
+DROP TABLE IF EXISTS asientos;
+DROP TABLE IF EXISTS funciones;
+DROP TABLE IF EXISTS salas;
+DROP TABLE IF EXISTS cines;
+DROP TABLE IF EXISTS colecciones_peliculas;
+DROP TABLE IF EXISTS colecciones;
+DROP TABLE IF EXISTS interacciones_peliculas;
+DROP TABLE IF EXISTS resenas;
+DROP TABLE IF EXISTS peliculas_generos;
+DROP TABLE IF EXISTS generos;
+DROP TABLE IF EXISTS peliculas;
+DROP TABLE IF EXISTS seguidores;
+DROP TABLE IF EXISTS historial_actividad;
+DROP TABLE IF EXISTS roles_permisos;
+DROP TABLE IF EXISTS permisos;
+DROP TABLE IF EXISTS usuarios_roles;
+DROP TABLE IF EXISTS usuarios;
+DROP TABLE IF EXISTS roles;
+DROP TABLE IF EXISTS tipos_documento;
+DROP TABLE IF EXISTS configuracion_sistema;
+
+SET FOREIGN_KEY_CHECKS = 1;
