@@ -43,8 +43,11 @@ DATABASE_URL = (
 # en desarrollo local (sin la variable) el comportamiento no cambia.
 connect_args = {}
 db_ssl_ca = os.getenv("DB_SSL_CA")
+db_ssl_enabled = os.getenv("DB_SSL", "").lower() in ("1", "true", "yes")
 if db_ssl_ca:
     connect_args["ssl"] = {"ca": db_ssl_ca}
+elif db_ssl_enabled:
+    connect_args["ssl"] = {"fake_flag": True}
 
 # Crear el engine sin forzar la conexión. Algunas herramientas (p. ej. Sphinx)
 # importan los módulos del paquete; evitar probar la conexión en el import

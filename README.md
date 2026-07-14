@@ -40,7 +40,7 @@ backend/
 ## Requisitos
 
 - Python 3.11+
-- MySQL 8.0+
+- MySQL 8.0+ (Railway)
 
 ---
 
@@ -56,20 +56,23 @@ pip install -r requirements.txt
 Crear `.env` en `backend/`:
 
 ```env
-DB_HOST=localhost
-DB_PORT=3306
+DB_HOST=tokaido.proxy.rlwy.net
+DB_PORT=49435
 DB_USER=root
-DB_PASSWORD=admin
-DB_NAME=filmate_db
+DB_PASSWORD=tu_contraseña
+DB_NAME=railway
+DB_SSL=true
 
 TMDB_API_KEY=tu_api_key_aqui
 TMDB_LANG=es-ES
 ```
 
-Ejecutar el script SQL en MySQL:
+Ejecutar el script SQL en Railway:
+
+El script `scripts/DSOOMDAG4v2.3.sql` contiene `CREATE DATABASE filmate_db; USE filmate_db;`. Railway ya proporciona una base de datos llamada `railway`, por lo que debes **eliminar esas primeras 3 líneas** (`DROP DATABASE`, `CREATE DATABASE`, `USE`) antes de ejecutarlo:
 
 ```bash
-mysql -u root -p < scripts/DSOOMDAG4v2.3.sql
+mysql -h tokaido.proxy.rlwy.net -P 49435 -u root -p railway < scripts/DSOOMDAG4v2.3.sql
 ```
 
 > La pasarela de pagos (`app/services/payment_gateway_service.py`) está **simulada localmente** — no requiere ninguna variable de entorno ni cuenta externa (ver sección [Pasarela de pagos](#pasarela-de-pagos-simulada)).
@@ -485,6 +488,41 @@ Módulos principales:
 | reportlab | PDF |
 | qrcode[pil] | QR |
 | python-dotenv | Variables de entorno |
+
+---
+
+## Despliegue
+
+El backend se despliega en **Render** y la base de datos está en **Railway**.
+
+### Variables de entorno en Render
+
+Configurar las siguientes variables en el dashboard de Render (no en `.env`):
+
+| Variable | Valor |
+|---|---|
+| `DB_HOST` | `tokaido.proxy.rlwy.net` |
+| `DB_PORT` | `49435` |
+| `DB_USER` | `root` |
+| `DB_PASSWORD` | (contraseña de Railway) |
+| `DB_NAME` | `railway` |
+| `DB_SSL` | `true` |
+| `TMDB_API_KEY` | (API key de TMDb) |
+| `TMDB_LANG` | `es-ES` |
+
+### Comando de inicio en Render
+
+```
+uvicorn app.main:app --host 0.0.0.0 --port $PORT
+```
+
+### CORS
+
+El backend ya tiene configurado CORS para aceptar requests desde dominios de Vercel (`*.vercel.app`), `localhost` y `127.0.0.1` en cualquier puerto. Ver `app/core/app.py`.
+
+### Health check
+
+Render puede usar el endpoint `/health` para verificar que el backend y la base de datos están funcionando.
 
 ---
 
