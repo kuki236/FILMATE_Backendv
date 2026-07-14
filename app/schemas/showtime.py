@@ -35,17 +35,17 @@ class SeatAvailabilityItem(BaseModel):
 class ShowtimeAvailabilityItem(BaseModel):
     id_funcion: int
     id_pelicula: int
-    titulo_pelicula: str
+    titulo_pelicula: str = ""
     id_sala: int
-    nombre_sala: str
-    tipo_sala: str
-    tipo_formato: str
+    nombre_sala: str = ""
+    tipo_sala: str = ""
+    tipo_formato: str = ""
     id_cine: int
-    nombre_cine: str
+    nombre_cine: str = ""
     fecha_hora: datetime
     precio_base: float
-    asientos_totales: int
-    asientos_disponibles: int
+    asientos_totales: int = 0
+    asientos_disponibles: int = 0
 
 
 class CinemaShowtimesResponse(BaseModel):
